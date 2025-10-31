@@ -115,9 +115,13 @@ pip install -r requirements.txt
 **前端环境变量**（`client/.env`）：
 
 ```env
-VITE_API_URL=http://localhost:3001
-VITE_WS_URL=ws://localhost:3001
+# 如果不设置，前端会自动根据访问地址推断（网络访问时使用主机 IP）
+# 仅在需要自定义时才设置以下变量：
+# VITE_API_URL=http://localhost:3001
+# VITE_WS_URL=ws://localhost:3001
 ```
+
+> **自动地址检测**：前端现在支持自动检测 API 和 WebSocket 地址。如果从网络访问（非 localhost），会自动使用当前主机名；如果是 localhost 访问，则使用 localhost。无需手动配置。
 
 **后端环境变量**（`server/.env`）：
 
@@ -189,7 +193,10 @@ npm run dev
 
 ### 访问应用
 
-打开浏览器访问前端地址（通常是 `http://localhost:5173`）
+打开浏览器访问前端地址：
+- **本地访问**: `http://localhost:5173`
+- **网络访问**: `http://<YOUR_IP>:5173`（启动脚本会显示具体地址）
+- 前端会自动检测访问地址，并连接到正确的后端 API 和 WebSocket 服务
 
 ## 测试
 
@@ -454,6 +461,7 @@ PORT=3001
 - 后端每次请求都启动新的 `cursor agent` 进程，不维护长期运行的子进程
 - 会话状态由 Cursor 内部管理，通过 chatId 访问
 - 前端的事件历史保存在本地，刷新页面不会丢失
+- 前端支持自动检测 API 地址，无需手动配置即可在网络环境中使用
 
 ## 许可证
 
