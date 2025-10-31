@@ -189,13 +189,20 @@ pip install -r requirements.txt
 **Frontend Environment Variables** (`client/.env`):
 
 ```env
-# If not set, frontend will automatically infer from access address (use host IP for network access)
-# Only set these variables when custom configuration is needed:
+# Main API Server URL (port 3001)
+# Auto-detected based on hostname if not set
 # VITE_API_URL=http://localhost:3001
-# VITE_WS_URL=ws://localhost:3001/ws
+
+# Cursor Agent Server URL (port 3002, no reload)
+# Auto-detected based on hostname if not set
+# WebSocket URL is automatically derived from this (ws://hostname:3002/ws)
+# VITE_CURSOR_AGENT_API_URL=http://localhost:3002
 ```
 
-> **Auto Address Detection**: The frontend now supports automatic detection of API and WebSocket addresses. When accessing from network (non-localhost), it automatically uses the current hostname; when accessing from localhost, it uses localhost. No manual configuration needed.
+> **Auto Address Detection**: The frontend automatically detects API addresses from the current hostname:
+> - When accessing from `localhost` or `127.0.0.1`: Uses `localhost:3001` and `localhost:3002`
+> - When accessing from network: Uses current hostname with ports `3001` and `3002`
+> - You only need to set environment variables if you want to override the auto-detection
 
 **Backend Environment Variables** (`server/.env`):
 
@@ -459,7 +466,8 @@ Production environment needs correct environment variables:
 **Frontend** (injected at build time):
 ```env
 VITE_API_URL=https://your-backend-domain.com
-VITE_WS_URL=wss://your-backend-domain.com
+VITE_CURSOR_AGENT_API_URL=https://your-backend-domain.com:3002
+# WebSocket URL is automatically derived from VITE_CURSOR_AGENT_API_URL
 ```
 
 **Backend**:
@@ -539,7 +547,7 @@ Assuming you deploy frontend to Nginx, backend to same server:
 ### Frontend Cannot Connect to Backend
 
 - Check if backend is running
-- Check if environment variables `VITE_API_URL` and `VITE_WS_URL` are correct
+- Check if environment variables `VITE_API_URL` and `VITE_CURSOR_AGENT_API_URL` are correct (if manually set)
 - Check browser console for network errors
 - If CORS issue, check backend CORS configuration
 
@@ -768,10 +776,14 @@ pip install -r requirements.txt
 **前端环境变量**（`client/.env`）：
 
 ```env
-# 如果不设置，前端会自动根据访问地址推断（网络访问时使用主机 IP）
-# 仅在需要自定义时才设置以下变量：
+# 主 API 服务器 URL (端口 3001)
+# 如果不设置，会根据当前主机名自动检测
 # VITE_API_URL=http://localhost:3001
-# VITE_WS_URL=ws://localhost:3001/ws
+
+# Cursor Agent 服务器 URL (端口 3002，不自动重载)
+# 如果不设置，会根据当前主机名自动检测
+# WebSocket URL 会自动从此 URL 推导 (ws://hostname:3002/ws)
+# VITE_CURSOR_AGENT_API_URL=http://localhost:3002
 ```
 
 > **自动地址检测**：前端现在支持自动检测 API 和 WebSocket 地址。如果从网络访问（非 localhost），会自动使用当前主机名；如果是 localhost 访问，则使用 localhost。无需手动配置。
@@ -1000,7 +1012,8 @@ gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:3001
 **前端**（构建时注入）：
 ```env
 VITE_API_URL=https://your-backend-domain.com
-VITE_WS_URL=wss://your-backend-domain.com
+VITE_CURSOR_AGENT_API_URL=https://your-backend-domain.com:3002
+# WebSocket URL 会自动从 VITE_CURSOR_AGENT_API_URL 推导
 ```
 
 **后端**：
@@ -1080,7 +1093,7 @@ PORT=3001
 ### 前端无法连接后端
 
 - 检查后端是否正在运行
-- 检查环境变量 `VITE_API_URL` 和 `VITE_WS_URL` 是否正确
+- 检查环境变量 `VITE_API_URL` 和 `VITE_CURSOR_AGENT_API_URL` 是否正确（如果手动设置了）
 - 检查浏览器控制台的网络错误
 - 如果是跨域问题，检查后端 CORS 配置
 

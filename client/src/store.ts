@@ -35,7 +35,14 @@ const getApiBase = () => {
 };
 
 // Get Cursor Agent server base URL (runs on port 3002, no reload)
+// Supports VITE_CURSOR_AGENT_API_URL environment variable for custom configuration
 const getCursorAgentApiBase = () => {
+  // Check for environment variable first
+  if (import.meta.env.VITE_CURSOR_AGENT_API_URL) {
+    return import.meta.env.VITE_CURSOR_AGENT_API_URL;
+  }
+  
+  // Auto-detect based on current hostname
   if (typeof window === 'undefined') {
     return 'http://localhost:3002';
   }
