@@ -217,11 +217,7 @@ function App() {
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {(() => {
           // Process events, filter and merge
-          type ToolCallGroup = { type: 'tool_call_group'; toolCalls: ChatEvent[]; id: string; timestamp: number };
-          type DisplayEvent = ChatEvent | ToolCallGroup;
-          
-          const filteredEvents: DisplayEvent[] = [];
-          let currentToolGroup: ChatEvent[] | null = null;
+          const filteredEvents: ChatEvent[] = [];
           
           currentEvents.forEach((event, index) => {
             // Filter out events that don't need to be displayed
@@ -232,61 +228,9 @@ function App() {
               return; // Skip system initialization
             }
             
-            // Handle tool_call events: group consecutive tool calls
+            // Skip tool_call events entirely - don't display them
             if (event.type === 'tool_call') {
-              const prevEvent = index > 0 ? currentEvents[index - 1] : null;
-              const nextEvent = index < currentEvents.length - 1 ? currentEvents[index + 1] : null;
-              
-              // Start a new group only if:
-              // 1. No current group exists, OR
-              // 2. Previous event is not a tool_call (meaning we had a break in tool calls)
-              // Note: We DON'T start a new group when previous tool_call was completed,
-              // because completed events are part of the same batch as started events
-              const shouldStartNewGroup = !currentToolGroup || 
-                  (prevEvent && prevEvent.type !== 'tool_call');
-              
-              if (shouldStartNewGroup) {
-                // If there was a previous group, add it before starting new one
-                if (currentToolGroup && currentToolGroup.length > 0) {
-                  const firstEvent = currentToolGroup[0];
-                  filteredEvents.push({
-                    type: 'tool_call_group',
-                    toolCalls: currentToolGroup,
-                    id: `tool-group-${firstEvent.id}`,
-                    timestamp: firstEvent.timestamp
-                  });
-                }
-                currentToolGroup = [];
-              }
-              
-              currentToolGroup!.push(event);
-              
-              // If next event is not tool_call, close the group
-              if (!nextEvent || nextEvent.type !== 'tool_call') {
-                if (currentToolGroup!.length > 0) {
-                  const firstEvent = currentToolGroup![0];
-                  filteredEvents.push({
-                    type: 'tool_call_group',
-                    toolCalls: [...currentToolGroup!],
-                    id: `tool-group-${firstEvent.id}`,
-                    timestamp: firstEvent.timestamp
-                  });
-                }
-                currentToolGroup = null;
-              }
-              return; // Don't add tool_call events individually
-            } else {
-              // Close any open tool group before adding other events
-              if (currentToolGroup && currentToolGroup.length > 0) {
-                const firstEvent = currentToolGroup[0];
-                filteredEvents.push({
-                  type: 'tool_call_group',
-                  toolCalls: [...currentToolGroup],
-                  id: `tool-group-${firstEvent.id}`,
-                  timestamp: firstEvent.timestamp
-                });
-                currentToolGroup = null;
-              }
+              return;
             }
             
             // Handle thinking events: merge consecutive thinking events, only show the last one
@@ -296,133 +240,13 @@ function App() {
                 // This is the last thinking event, add it
                 filteredEvents.push(event);
               }
-            } else if (event.type !== 'tool_call') {
-              // Non-thinking, non-tool_call events, add directly
+            } else {
+              // All other events (except tool_call which is already filtered), add directly
               filteredEvents.push(event);
             }
           });
           
-          // Close any remaining tool group
-          if (currentToolGroup !== null) {
-            const toolGroup: ChatEvent[] = currentToolGroup;
-            if (toolGroup.length > 0) {
-              const firstEvent = toolGroup[0];
-              filteredEvents.push({
-                type: 'tool_call_group',
-                toolCalls: [...toolGroup],
-                id: `tool-group-${firstEvent.id}`,
-                timestamp: firstEvent.timestamp
-              });
-            }
-          }
-          
-          return filteredEvents.map((event) => {
-            // Handle tool_call_group
-            if ('toolCalls' in event) {
-              const toolCalls = event.toolCalls;
-              // Group tool calls by their unique identifier
-              // Use a more robust ID extraction that handles different payload structures
-              const toolMap = new Map<string, { started?: ChatEvent; completed?: ChatEvent; name?: string; lastUpdate?: number }>();
-              
-              toolCalls.forEach((toolCall: ChatEvent) => {
-                // Extract tool identifier from payload - try multiple possible locations
-                // Priority: toolCall.id > payload.id > payload.toolCall.id > fallback to event id
-                let toolId: string;
-                if (toolCall.payload?.toolCall?.id) {
-                  toolId = String(toolCall.payload.toolCall.id);
-                } else if (toolCall.payload?.id) {
-                  toolId = String(toolCall.payload.id);
-                } else if (toolCall.payload?.toolCall?.shellToolCall?.args?.command) {
-                  // For shell commands, use command as unique identifier
-                  toolId = String(toolCall.payload.toolCall.shellToolCall.args.command);
-                } else {
-                  // Fallback: use a combination of event type and timestamp as unique ID
-                  toolId = `tool-${toolCall.timestamp}-${toolCall.id}`;
-                }
-                
-                // Extract tool name with better fallback logic
-                let toolName: string;
-                if (toolCall.payload?.toolCall?.name) {
-                  toolName = String(toolCall.payload.toolCall.name);
-                } else if (toolCall.payload?.toolCall?.shellToolCall?.args?.command) {
-                  toolName = String(toolCall.payload.toolCall.shellToolCall.args.command);
-                } else if (toolCall.payload?.name) {
-                  toolName = String(toolCall.payload.name);
-                } else if (toolCall.payload?.toolCall?.mcpToolCall?.name) {
-                  toolName = String(toolCall.payload.toolCall.mcpToolCall.name);
-                } else {
-                  toolName = 'Unknown Tool';
-                }
-                
-                if (!toolMap.has(toolId)) {
-                  toolMap.set(toolId, { name: toolName, lastUpdate: toolCall.timestamp });
-                }
-                
-                const tool = toolMap.get(toolId)!;
-                if (toolCall.subtype === 'started') {
-                  tool.started = toolCall;
-                  tool.lastUpdate = toolCall.timestamp;
-                } else if (toolCall.subtype === 'completed') {
-                  tool.completed = toolCall;
-                  tool.lastUpdate = toolCall.timestamp;
-                } else {
-                  // Update timestamp even for other subtypes
-                  tool.lastUpdate = Math.max(tool.lastUpdate || 0, toolCall.timestamp);
-                }
-                
-                // Always update name if we found a better one
-                if (toolName !== 'Unknown Tool' && (!tool.name || tool.name === 'Unknown Tool')) {
-                  tool.name = toolName;
-                }
-              });
-              
-              const tools = Array.from(toolMap.values());
-              // Sort tools by last update time to show them in order
-              tools.sort((a, b) => (a.lastUpdate || 0) - (b.lastUpdate || 0));
-              
-              return (
-                <div
-                  key={event.id}
-                  className="bg-yellow-50 border border-yellow-200 mr-auto max-w-[90%] p-3 rounded-lg"
-                >
-                  <div className="font-medium mb-2 text-xs text-gray-700">Tools:</div>
-                  <div className="space-y-2">
-                    {tools.map((tool, idx) => {
-                      const isCompleted = !!tool.completed;
-                      const toolName = tool.name || `Tool ${idx + 1}`;
-                      // Check if tool has been running for too long (more than 5 minutes)
-                      const isLongRunning = tool.started && !isCompleted && tool.lastUpdate && 
-                        (Date.now() - tool.lastUpdate > 5 * 60 * 1000);
-                      
-                      return (
-                        <div key={`${toolName}-${idx}-${tool.started?.id || idx}`} className="flex items-center gap-2 text-xs">
-                          {isCompleted ? (
-                            <span className="text-green-600 font-semibold text-base">✓</span>
-                          ) : isLongRunning ? (
-                            <span className="text-yellow-600 font-semibold text-base" title="Running for a long time">⚠</span>
-                          ) : (
-                            <span className="inline-block w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
-                          )}
-                          <span className={
-                            isCompleted ? 'text-green-700' : 
-                            isLongRunning ? 'text-yellow-700' : 
-                            'text-gray-700'
-                          }>
-                            {toolName}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="text-xs opacity-70 mt-2">
-                    {new Date(event.timestamp).toLocaleTimeString()}
-                  </div>
-                </div>
-              );
-            }
-            
-            // Regular event rendering (type guard ensures it's ChatEvent)
-            const chatEvent = event as ChatEvent;
+          return filteredEvents.map((chatEvent) => {
             return (
               <div
                 key={chatEvent.id}
@@ -437,6 +261,10 @@ function App() {
                     ? 'bg-red-50 border border-red-200 mr-auto max-w-[90%]'
                     : chatEvent.type === 'thinking'
                     ? 'bg-gray-100 border border-gray-200 mr-auto max-w-[80%] text-sm opacity-70'
+                    : chatEvent.type === 'result'
+                    ? (chatEvent.subtype === 'success' || (chatEvent.payload.exitCode === 0) || (chatEvent.payload.is_error === false)
+                        ? 'bg-green-50 border border-green-200 mr-auto max-w-[90%]'
+                        : 'bg-red-50 border border-red-200 mr-auto max-w-[90%]')
                     : 'bg-gray-50 border border-gray-200 mr-auto max-w-[90%] text-sm'
                 }`}
               >
@@ -445,6 +273,7 @@ function App() {
                 {chatEvent.type === 'tool_call' && <div className="font-medium mb-1 text-xs">Tool:</div>}
                 {chatEvent.type === 'error' && <div className="font-medium mb-1 text-red-600">Error:</div>}
                 {chatEvent.type === 'thinking' && <div className="font-medium mb-1 text-gray-600">Thinking...</div>}
+                {chatEvent.type === 'result' && <div className="font-medium mb-1 text-sm">Result:</div>}
                 
                 <div className="whitespace-pre-wrap break-words">
                   {chatEvent.type === 'user' && chatEvent.payload.prompt}
@@ -469,14 +298,29 @@ function App() {
                     chatEvent.subtype === 'started' ? (
                       <div className="text-xs text-gray-600">Executing...</div>
                     ) : chatEvent.subtype === 'completed' ? (
-                      <div className="text-xs text-green-600">✓ Completed</div>
+                      <div className="text-xs text-green-600">? Completed</div>
                     ) : (
                       <div className="text-xs">Tool Call</div>
                     )
                   )}
                   {chatEvent.type === 'error' && chatEvent.payload.message}
                   {chatEvent.type === 'thinking' && ''}
-                  {!['user', 'assistant', 'tool_call', 'error', 'thinking'].includes(chatEvent.type) && (
+                  {chatEvent.type === 'result' && (
+                    <div className="flex items-center gap-2">
+                      {chatEvent.subtype === 'success' || (chatEvent.payload.exitCode === 0) || (chatEvent.payload.is_error === false) ? (
+                        <>
+                          <span className="text-green-600 font-semibold text-base">?</span>
+                          <span className="text-green-700">Success</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-red-600 font-semibold text-base">?</span>
+                          <span className="text-red-700">Failed</span>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {!['user', 'assistant', 'tool_call', 'error', 'thinking', 'result'].includes(chatEvent.type) && (
                     <pre className="text-xs overflow-x-auto">
                       {JSON.stringify(chatEvent.payload, null, 2)}
                     </pre>
