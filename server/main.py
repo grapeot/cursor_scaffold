@@ -96,6 +96,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     logger.info("Spawning cursor command:")
                     logger.info(f"  - Command: cursor")
                     logger.info(f"  - Args: {' '.join(cmd[1:-1])} [prompt...]")
+                    logger.info(f"  - Using --force flag to bypass sandbox restrictions for file editing")
                     logger.info(f"  - Full command: cursor {' '.join(cmd[1:-1])} \"{prompt.replace(chr(10), '\\n').replace(chr(9), '\\t')[:50]}...\"")
                     
                     await process_cursor_command(cmd, websocket, ws_id)

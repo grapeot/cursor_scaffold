@@ -432,6 +432,18 @@ PORT=3001
 - 检查 `cursor agent create-chat` 命令是否可以直接运行
 - 查看后端日志获取详细错误信息
 
+### 文件编辑权限问题
+
+如果 Cursor Agent 在编辑文件时遇到权限问题（工具调用被 rejected）：
+
+- **后端已配置 `--force` 参数**：代码中已经添加了 `--force` 标志来绕过沙箱限制
+- 如果仍然遇到问题，可以检查：
+  - Cursor CLI 版本是否最新：运行 `cursor agent update`
+  - 工作区信任设置：在 Cursor 设置中检查 `security.workspace.trust.enabled`
+  - 后端日志中查看具体的拒绝原因
+
+`--force` 参数的作用是："Force allow commands unless explicitly denied"，允许所有命令和文件写入操作，除非被明确拒绝。
+
 ## 开发注意事项
 
 - 前端使用 Zustand 进行状态管理，会话数据保存在 localStorage
