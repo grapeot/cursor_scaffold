@@ -163,10 +163,206 @@ async def websocket_endpoint(websocket: WebSocket, chatId: Optional[str] = Query
             del ws_connections[ws_id]
 
 
+def extract_tool_name(event: dict) -> Optional[str]:
+    """Extract tool name from event, trying various possible fields"""
+    # Try various possible fields where tool name might be stored
+    possible_fields = [
+        'tool',
+        'tool_name',
+        'toolName',
+        'function',
+        'function_name',
+        'name',
+        'toolCall',
+        'tool_call',
+    ]
+    
+    # Check top-level fields
+    for field in possible_fields:
+        if field in event and event[field]:
+            value = event[field]
+            if isinstance(value, str):
+                return value
+            elif isinstance(value, dict) and 'name' in value:
+                return value['name']
+    
+    # Check in nested structures
+    if 'data' in event and isinstance(event['data'], dict):
+        for field in possible_fields:
+            if field in event['data']:
+                value = event['data'][field]
+                if isinstance(value, str):
+                    return value
+                elif isinstance(value, dict) and 'name' in value:
+                    return value['name']
+    
+    # Check in arguments or params
+    if 'arguments' in event and isinstance(event['arguments'], dict):
+        if 'tool' in event['arguments']:
+            return event['arguments']['tool']
+    
+    if 'params' in event and isinstance(event['params'], dict):
+        if 'tool' in event['params']:
+            return event['params']['tool']
+    
+    return None
+
+
+def extract_file_edit_info(event: dict) -> Optional[dict]:
+    """Extract file editing information from event"""
+    file_path = None
+    lines_added = 0
+    lines_deleted = 0
+    lines_changed = 0
+    
+    # Try to extract file path from various possible fields
+    path_fields = ['path', 'file', 'file_path', 'filePath', 'target_file', 'targetFile', 'filePath']
+    for field in path_fields:
+        if field in event:
+            value = event[field]
+            if isinstance(value, str):
+                file_path = value
+                break
+            elif isinstance(value, dict) and 'path' in value:
+                file_path = value['path']
+                break
+    
+    # Check in nested structures
+    if not file_path and 'data' in event and isinstance(event['data'], dict):
+        for field in path_fields:
+            if field in event['data']:
+                value = event['data'][field]
+                if isinstance(value, str):
+                    file_path = value
+                    break
+    
+    # Try to extract edit statistics
+    stats_fields = [
+        ('lines_added', 'added', 'additions', 'addedLines'),
+        ('lines_deleted', 'deleted', 'deletions', 'removedLines', 'deletedLines'),
+        ('lines_changed', 'changed', 'modifications', 'modifiedLines'),
+    ]
+    
+    for stat_name, *possible_fields in stats_fields:
+        for field in possible_fields:
+            if field in event:
+                value = event[field]
+                if isinstance(value, (int, float)):
+                    if stat_name == 'lines_added':
+                        lines_added = int(value)
+                    elif stat_name == 'lines_deleted':
+                        lines_deleted = int(value)
+                    elif stat_name == 'lines_changed':
+                        lines_changed = int(value)
+                    break
+    
+    # Check in nested structures
+    if 'data' in event and isinstance(event['data'], dict):
+        data = event['data']
+        for stat_name, *possible_fields in stats_fields:
+            for field in possible_fields:
+                if field in data:
+                    value = data[field]
+                    if isinstance(value, (int, float)):
+                        if stat_name == 'lines_added':
+                            lines_added = int(value)
+                        elif stat_name == 'lines_deleted':
+                            lines_deleted = int(value)
+                        elif stat_name == 'lines_changed':
+                            lines_changed = int(value)
+                        break
+    
+    # Try to extract from diff or content
+    if 'diff' in event:
+        diff = event['diff']
+        if isinstance(diff, str):
+            # Count lines in diff more accurately
+            lines = diff.split('\n')
+            added_count = sum(1 for line in lines if line.startswith('+') and not line.startswith('+++'))
+            deleted_count = sum(1 for line in lines if line.startswith('-') and not line.startswith('---'))
+            if added_count > 0 or deleted_count > 0:
+                lines_added = max(lines_added, added_count)
+                lines_deleted = max(lines_deleted, deleted_count)
+    
+    # Also check content field for diff-like content
+    if 'content' in event and isinstance(event['content'], str):
+        content = event['content']
+        if '+++' in content or '---' in content or content.strip().startswith('+') or content.strip().startswith('-'):
+            lines = content.split('\n')
+            added_count = sum(1 for line in lines if line.startswith('+') and not line.startswith('+++'))
+            deleted_count = sum(1 for line in lines if line.startswith('-') and not line.startswith('---'))
+            if added_count > 0 or deleted_count > 0:
+                lines_added = max(lines_added, added_count)
+                lines_deleted = max(lines_deleted, deleted_count)
+    
+    if file_path or lines_added > 0 or lines_deleted > 0 or lines_changed > 0:
+        return {
+            'file_path': file_path,
+            'lines_added': lines_added,
+            'lines_deleted': lines_deleted,
+            'lines_changed': lines_changed
+        }
+    
+    return None
+
+
+def create_bubble_message(event_type: str, event: dict) -> Optional[dict]:
+    """Create a bubble message for file edits or tool calls"""
+    if event_type == 'file_edit' or 'edit' in str(event.get('type', '')).lower() or 'file' in str(event.get('type', '')).lower():
+        edit_info = extract_file_edit_info(event)
+        if edit_info:
+            file_path = edit_info['file_path'] or '????'
+            lines_added = edit_info['lines_added']
+            lines_deleted = edit_info['lines_deleted']
+            lines_changed = edit_info['lines_changed']
+            
+            # Build message
+            parts = [f"?? ????: {file_path}"]
+            stats = []
+            
+            if lines_added > 0:
+                stats.append(f"+{lines_added} ?")
+            if lines_deleted > 0:
+                stats.append(f"-{lines_deleted} ?")
+            if lines_changed > 0 and lines_added == 0 and lines_deleted == 0:
+                stats.append(f"?? {lines_changed} ?")
+            
+            if stats:
+                parts.append(f"({', '.join(stats)})")
+            
+            return {
+                "type": "bubble",
+                "category": "file_edit",
+                "message": " ".join(parts),
+                "file_path": file_path,
+                "lines_added": lines_added,
+                "lines_deleted": lines_deleted,
+                "lines_changed": lines_changed
+            }
+    
+    elif event_type == 'tool_call' or 'tool' in str(event.get('type', '')).lower():
+        tool_name = extract_tool_name(event)
+        if tool_name:
+            return {
+                "type": "bubble",
+                "category": "tool_call",
+                "message": f"?? ????: {tool_name}",
+                "tool_name": tool_name
+            }
+    
+    return None
+
+
 async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: str):
     """Process cursor command execution and stream output"""
     process = None
     try:
+        # Send reset event at the start of a new command to reset UI state
+        await websocket.send_json({
+            "type": "reset",
+            "message": "Starting new command"
+        })
+        
         # Create subprocess using asyncio
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -201,7 +397,53 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
                         line_count += 1
                         try:
                             event = json.loads(line)
-                            logger.info(f"Sending event to client (line {line_count}): {event.get('type')} {event.get('subtype', '')}")
+                            event_type = event.get('type', '')
+                            subtype = event.get('subtype', '')
+                            
+                            # Process tool-related events - check for tool indicators in various places
+                            is_tool_event = (
+                                'tool' in event_type.lower() or
+                                subtype in ['tool', 'tool_call', 'calling_tool', 'tool-call'] or
+                                'toolCall' in str(event) or
+                                'tool_call' in str(event).lower() or
+                                extract_tool_name(event) is not None
+                            )
+                            
+                            if is_tool_event:
+                                tool_name = extract_tool_name(event)
+                                if tool_name:
+                                    # Add or update tool_name in the event for proper display
+                                    event['tool_name'] = tool_name
+                                    logger.info(f"Extracted tool name: {tool_name}")
+                                    
+                                    # Create and send bubble message for tool call
+                                    bubble = create_bubble_message('tool_call', event)
+                                    if bubble:
+                                        await websocket.send_json(bubble)
+                                        logger.info(f"Sent tool call bubble: {bubble['message']}")
+                                else:
+                                    # Skip unknown tool events (without tool names)
+                                    logger.info(f"Skipping unknown tool event (line {line_count}): {event_type} {subtype}")
+                                    continue
+                            
+                            # Check for file edit events
+                            is_file_edit_event = (
+                                'edit' in event_type.lower() or
+                                'file' in event_type.lower() or
+                                'write' in event_type.lower() or
+                                'modify' in event_type.lower() or
+                                subtype in ['edit', 'file_edit', 'write_file', 'edit_file'] or
+                                extract_file_edit_info(event) is not None
+                            )
+                            
+                            if is_file_edit_event:
+                                # Create and send bubble message for file edit
+                                bubble = create_bubble_message('file_edit', event)
+                                if bubble:
+                                    await websocket.send_json(bubble)
+                                    logger.info(f"Sent file edit bubble: {bubble['message']}")
+                            
+                            logger.info(f"Sending event to client (line {line_count}): {event_type} {subtype}")
                             await websocket.send_json(event)
                         except json.JSONDecodeError:
                             logger.info(f"Failed to parse line {line_count}, sending as raw: {line[:100]}")
