@@ -175,7 +175,7 @@ function App() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-3">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Cursor Client</h1>
+          <h1 className="text-xl font-semibold">Cursor Scaffold</h1>
           <div className="flex items-center gap-2">
             <span className={`text-xs px-2 py-1 rounded ${connected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
               {connected ? 'Connected' : 'Disconnected'}
