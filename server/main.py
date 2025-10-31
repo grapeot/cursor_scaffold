@@ -6,11 +6,18 @@ import subprocess
 from datetime import datetime
 from typing import Optional, List, Dict
 import re
+import base64
+import io
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import requests
 from bs4 import BeautifulSoup
+import yfinance as yf
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
 
 # Configure logging
 logging.basicConfig(
@@ -439,6 +446,82 @@ async def get_yage_articles():
     logger.info("Fetching articles from yage.ai")
     articles = find_articles_from_yage()
     return {"articles": articles, "count": len(articles)}
+
+
+@app.get("/api/stock/amzn/plot")
+async def plot_amazon_stock():
+    """Fetch today's Amazon stock price and create a plot"""
+    try:
+        logger.info("Fetching Amazon stock data")
+        
+        # Get Amazon stock ticker
+        ticker = yf.Ticker("AMZN")
+        
+        # Get today's intraday data
+        today = datetime.now().date()
+        data = ticker.history(period="1d", interval="1m")
+        
+        # If no intraday data available (market closed), get latest available data
+        if data.empty:
+            data = ticker.history(period="5d", interval="1h")
+            if data.empty:
+                # Fallback to daily data
+                data = ticker.history(period="5d", interval="1d")
+        
+        # Get current info
+        info = ticker.info
+        current_price = info.get('currentPrice') or info.get('regularMarketPrice') or data['Close'].iloc[-1]
+        
+        # Create the plot
+        plt.figure(figsize=(12, 6))
+        
+        if len(data) > 0:
+            # Plot closing prices
+            plt.plot(data.index, data['Close'], linewidth=2, color='#FF9900', label='Closing Price')
+            
+            # Add current price line
+            plt.axhline(y=current_price, color='r', linestyle='--', linewidth=1.5, label=f'Current: ${current_price:.2f}')
+            
+            # Formatting
+            plt.title(f"Amazon (AMZN) Stock Price - {today}", fontsize=16, fontweight='bold')
+            plt.xlabel("Time", fontsize=12)
+            plt.ylabel("Price (USD)", fontsize=12)
+            plt.grid(True, alpha=0.3)
+            plt.legend()
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+        else:
+            # If no data available, show message
+            plt.text(0.5, 0.5, 'No data available for today', 
+                    horizontalalignment='center', verticalalignment='center',
+                    transform=plt.gca().transAxes, fontsize=14)
+            plt.title(f"Amazon (AMZN) Stock Price - {today}", fontsize=16, fontweight='bold')
+        
+        # Convert plot to base64 string
+        img_buffer = io.BytesIO()
+        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
+        img_buffer.seek(0)
+        img_base64 = base64.b64encode(img_buffer.read()).decode('utf-8')
+        plt.close()
+        
+        # Get additional stock info
+        stock_info = {
+            "symbol": "AMZN",
+            "currentPrice": round(current_price, 2),
+            "date": str(today),
+            "dataPoints": len(data)
+        }
+        
+        logger.info(f"Generated plot for AMZN - Current price: ${current_price:.2f}")
+        
+        return JSONResponse({
+            "plot": f"data:image/png;base64,{img_base64}",
+            "info": stock_info
+        })
+        
+    except Exception as e:
+        logger.error(f"Error plotting Amazon stock: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to plot stock data: {str(e)}")
 
 
 @app.get("/")
