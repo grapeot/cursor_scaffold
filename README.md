@@ -6,14 +6,18 @@
 
 ```
 cursor_client/
-├── client/          # React 前端应用
-│   ├── src/         # 源代码
+├── client/              # React 前端应用
+│   ├── src/             # 源代码
+│   ├── .env.example     # 环境变量示例文件
 │   └── ...
-├── server/           # Node.js 后端服务
-│   ├── src/         # 源代码
+├── server/              # Node.js 后端服务
+│   ├── src/             # 源代码
+│   ├── .env.example     # 环境变量示例文件
 │   └── ...
-├── design.md        # 产品设计文档
-└── README.md        # 本文件
+├── start_frontend.sh    # 前端启动脚本
+├── start_backend.sh     # 后端启动脚本
+├── design.md            # 产品设计文档
+└── README.md            # 本文件
 ```
 
 ## 前置要求
@@ -23,40 +27,118 @@ cursor_client/
 - Cursor CLI (已安装并可在命令行访问 `cursor` 命令)
 - Cursor 账户已登录并配置
 
-## 开发环境设置
+## 快速开始
 
-### 1. 安装依赖
+### 方法一：使用启动脚本（推荐）
 
-#### 前端依赖
+项目提供了便捷的启动脚本，会自动安装依赖和配置环境变量：
+
+#### 启动后端服务器
+
+```bash
+./start_backend.sh
+```
+
+或：
+
+```bash
+bash start_backend.sh
+```
+
+脚本会自动：
+- 检查并安装后端依赖
+- 配置环境变量（从 `.env.example` 复制到 `.env`）
+- 检查 Cursor CLI 是否可用
+- 启动开发服务器
+
+#### 启动前端开发服务器
+
+```bash
+./start_frontend.sh
+```
+
+或：
+
+```bash
+bash start_frontend.sh
+```
+
+脚本会自动：
+- 检查并安装前端依赖
+- 配置环境变量（从 `.env.example` 复制到 `.env`）
+- 启动开发服务器
+
+### 方法二：手动安装
+
+#### 1. 安装依赖
+
+**前端依赖**
 ```bash
 cd client
 npm install
 ```
 
-#### 后端依赖
+**后端依赖**
 ```bash
 cd server
 npm install
 ```
 
-### 2. 配置环境变量
+#### 2. 配置环境变量
 
-前端需要在 `client/` 目录下创建 `.env` 文件（可选，有默认值）：
+**前端环境变量**（`client/.env`）
+
+如果 `.env` 文件不存在，可以从 `.env.example` 复制：
+
+```bash
+cd client
+cp .env.example .env
+```
+
+或手动创建 `client/.env`：
 
 ```env
 VITE_API_URL=http://localhost:3001
 VITE_WS_URL=ws://localhost:3001
 ```
 
-后端会在 `server/` 目录使用环境变量（可选）：
+**后端环境变量**（`server/.env`）
+
+如果 `.env` 文件不存在，可以从 `.env.example` 复制：
+
+```bash
+cd server
+cp .env.example .env
+```
+
+或手动创建 `server/.env`：
 
 ```env
 PORT=3001
+NODE_ENV=development
 ```
 
 ## 本地开发
 
-### 启动后端服务器
+### 使用启动脚本启动
+
+**终端 1 - 启动后端**：
+```bash
+./start_backend.sh
+```
+
+后端默认运行在 `http://localhost:3001`
+
+**终端 2 - 启动前端**：
+```bash
+./start_frontend.sh
+```
+
+前端默认运行在 `http://localhost:5173`（或 Vite 自动选择的端口）
+
+### 手动启动
+
+**启动后端服务器**
 
 在 `server/` 目录下运行：
 
@@ -64,17 +146,13 @@ PORT=3001
 npm run dev
 ```
 
-服务器默认运行在 `http://localhost:3001`
-
-### 启动前端开发服务器
+**启动前端开发服务器**
 
 在 `client/` 目录下运行：
 
 ```bash
 npm run dev
 ```
-
-前端默认运行在 `http://localhost:5173`（或 Vite 自动选择的端口）
 
 ### 访问应用
 
@@ -104,6 +182,25 @@ npm run dev
 
 ### 端到端测试流程
 
+使用启动脚本（推荐）：
+
+```bash
+# 终端 1: 启动后端
+./start_backend.sh
+
+# 终端 2: 启动前端
+./start_frontend.sh
+
+# 浏览器: 访问 http://localhost:5173
+# 1. 验证自动创建会话
+# 2. 发送测试消息："Say hello"
+# 3. 验证收到响应
+# 4. 创建新会话
+# 5. 验证会话切换成功
+```
+
+或手动启动：
+
 ```bash
 # 终端 1: 启动后端
 cd server
@@ -114,11 +211,6 @@ cd client
 npm run dev
 
 # 浏览器: 访问 http://localhost:5173
-# 1. 验证自动创建会话
-# 2. 发送测试消息："Say hello"
-# 3. 验证收到响应
-# 4. 创建新会话
-# 5. 验证会话切换成功
 ```
 
 ### 命令行测试
