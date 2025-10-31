@@ -1,8 +1,8 @@
-# Cursor Client
+# Cursor Scaffold
 
 A mobile-friendly React application that provides a graphical interface for the Cursor Agent CLI.
 
-[中文版本](#中文版本)
+[中文版](#中文版)
 
 ## Overview
 
@@ -533,13 +533,13 @@ The `--force` parameter works as: "Force allow commands unless explicitly denied
 
 ## License
 
-ISC
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-## 中文版本 {#中文版本}
+## 中文版 {#中文版}
 
-# Cursor Client
+# Cursor Scaffold
 
 一个支持移动端友好的 React 应用，实现对 Cursor Agent CLI 的图形化封装。
 
@@ -1071,4 +1071,4 @@ PORT=3001
 
 ## 许可证
 
-ISC
+MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。
