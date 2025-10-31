@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useAppStore } from './store';
 import type { ChatEvent } from './types';
 import Result from './Result';
+import ToolCallStatus from './ToolCallStatus';
 
 // Note: API and WebSocket URLs are calculated directly in useEffect to ensure runtime hostname
 
@@ -295,57 +296,20 @@ function App() {
             }
           });
           
-          // Check tool call status: if there are any tool calls, show unified status
+          // Calculate tool call status: count total started and completed
           const toolCalls = Array.from(toolCallMap.values());
-          const hasToolCalls = toolCalls.length > 0;
-          const hasRunningTools = toolCalls.some(tool => tool.started && !tool.completed);
-          const allToolsCompleted = toolCalls.length > 0 && toolCalls.every(tool => tool.completed);
-          
-          const elements: React.ReactNode[] = [];
-          
-          // Add unified tool call status if there are any tool calls
-          if (hasToolCalls) {
-            elements.push(
-              <div
-                key="tool-call-status"
-                className="mr-auto max-w-[90%] bg-yellow-50 border border-yellow-200 p-3 rounded-lg"
-              >
-                <div className="flex items-center gap-2 text-xs">
-                  {allToolsCompleted ? (
-                    <>
-                      <span className="text-green-600 font-semibold text-base">?</span>
-                      <span className="text-gray-700">All tools completed</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="inline-block w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
-                      <span className="text-gray-700">Calling tools...</span>
-                    </>
-                  )}
-                </div>
-              </div>
-            );
-          }
+          const totalToolCalls = toolCalls.filter(tool => tool.started).length;
+          const completedToolCalls = toolCalls.filter(tool => tool.completed).length;
+          const hasActiveToolCalls = totalToolCalls > 0 && completedToolCalls < totalToolCalls;
+          const allToolCallsFinished = totalToolCalls > 0 && completedToolCalls === totalToolCalls;
+          const shouldShowToolCallStatus = hasActiveToolCalls || allToolCallsFinished;
           
           // Collect result events separately to show only the latest one
           const resultEvents = filteredEvents.filter(e => e.type === 'result');
           const latestResult = resultEvents.length > 0 ? resultEvents[resultEvents.length - 1] : null;
           const nonResultEvents = filteredEvents.filter(e => e.type !== 'result');
           
-          // Add latest result event if exists
-          if (latestResult) {
-            const isSuccess = latestResult.subtype === 'success' || 
-                              (latestResult.payload.exitCode === 0) || 
-                              (latestResult.payload.is_error === false);
-            elements.push(
-              <div
-                key={latestResult.id}
-                className="text-gray-400 italic text-xs text-center py-1"
-              >
-                {isSuccess ? '? Completed' : '? Failed'}
-              </div>
-            );
-          }
+          const elements: React.ReactNode[] = [];
           
           // Add filtered events (excluding result events, we already handled them)
           nonResultEvents.forEach((chatEvent) => {
@@ -407,6 +371,32 @@ function App() {
               </div>
             );
           });
+          
+          // Add unified tool call status if there are any tool calls (after messages)
+          if (shouldShowToolCallStatus) {
+            elements.push(
+              <ToolCallStatus
+                key="tool-call-status"
+                total={totalToolCalls}
+                completed={completedToolCalls}
+              />
+            );
+          }
+          
+          // Add latest result event if exists (after messages and tool call status)
+          if (latestResult) {
+            const isSuccess = latestResult.subtype === 'success' || 
+                              (latestResult.payload.exitCode === 0) || 
+                              (latestResult.payload.is_error === false);
+            elements.push(
+              <div
+                key={latestResult.id}
+                className="text-gray-400 italic text-xs text-center py-1"
+              >
+                {isSuccess ? '✓ Completed' : '✗ Failed'}
+              </div>
+            );
+          }
           
           return elements;
         })()}
