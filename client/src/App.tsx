@@ -2,8 +2,29 @@ import { useEffect, useState, useRef } from 'react';
 import { useAppStore } from './store';
 import type { ChatEvent } from './types';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001/ws';
+// 自动检测 API 地址：优先使用环境变量，否则根据当前访问地址自动推断
+const getApiBase = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  // 如果是网络访问，使用当前主机名；否则使用 localhost
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  return hostname === 'localhost' || hostname === '127.0.0.1' 
+    ? 'http://localhost:3001' 
+    : `http://${hostname}:3001`;
+};
+
+const getWsUrl = () => {
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+  const apiBase = getApiBase();
+  // 将 http:// 转换为 ws://
+  return apiBase.replace(/^http/, 'ws') + '/ws';
+};
+
+const API_BASE = getApiBase();
+const WS_URL = getWsUrl();
 
 function App() {
   const { currentChatId, events, addEvent, getEvents, createChat, setCurrentChatId } = useAppStore();

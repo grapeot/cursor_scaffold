@@ -16,7 +16,19 @@ interface AppState {
   switchChat: (chatId: string) => void;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// 自动检测 API 地址：优先使用环境变量，否则根据当前访问地址自动推断
+const getApiBase = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  // 如果是网络访问，使用当前主机名；否则使用 localhost
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  return hostname === 'localhost' || hostname === '127.0.0.1' 
+    ? 'http://localhost:3001' 
+    : `http://${hostname}:3001`;
+};
+
+const API_BASE = getApiBase();
 
 export const useAppStore = create<AppState>()(
   persist(
