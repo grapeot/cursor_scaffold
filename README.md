@@ -86,36 +86,36 @@ npm install
 
 #### 2. 配置环境变量
 
-**前端环境变量**（`client/.env`）
+**环境变量文件位置**：
+- 前端环境变量：`client/.env`
+- 后端环境变量：`server/.env`
 
-如果 `.env` 文件不存在，可以从 `.env.example` 复制：
+> **注意**：`.env` 文件已从 `.env.example` 自动创建，如果文件不存在，启动脚本会自动创建。你也可以手动创建或修改。
 
-```bash
-cd client
-cp .env.example .env
-```
-
-或手动创建 `client/.env`：
+**前端环境变量**（`client/.env`）：
 
 ```env
 VITE_API_URL=http://localhost:3001
 VITE_WS_URL=ws://localhost:3001
 ```
 
-**后端环境变量**（`server/.env`）
-
-如果 `.env` 文件不存在，可以从 `.env.example` 复制：
-
-```bash
-cd server
-cp .env.example .env
-```
-
-或手动创建 `server/.env`：
+**后端环境变量**（`server/.env`）：
 
 ```env
 PORT=3001
 NODE_ENV=development
+```
+
+如果 `.env` 文件不存在，可以手动从 `.env.example` 复制：
+
+```bash
+# 前端
+cd client
+cp .env.example .env
+
+# 后端
+cd server
+cp .env.example .env
 ```
 
 ## 本地开发
