@@ -318,12 +318,12 @@ function App() {
           });
           
           // Close any remaining tool group
-          if (currentToolGroup !== null && currentToolGroup.length > 0) {
-            const group: ChatEvent[] = currentToolGroup;
-            const firstEvent = group[0];
+          const remainingGroup: ChatEvent[] | null = currentToolGroup;
+          if (remainingGroup !== null && remainingGroup.length > 0) {
+            const firstEvent = remainingGroup[0];
             filteredEvents.push({
               type: 'tool_call_group',
-              toolCalls: [...group],
+              toolCalls: [...remainingGroup],
               id: `tool-group-${firstEvent.id}`,
               timestamp: firstEvent.timestamp
             });
