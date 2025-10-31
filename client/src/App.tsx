@@ -17,6 +17,10 @@ function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 10;
+  const reconnectDelay = 1000; // Start with 1 second
 
   // Initialize: create session or restore existing session
   useEffect(() => {
@@ -52,7 +56,7 @@ function App() {
     }
   }, [connected, currentChatId]);
 
-  // WebSocket connection
+  // WebSocket connection with auto-reconnect
   useEffect(() => {
     // Dynamically calculate WebSocket URL at runtime to ensure correct hostname
     // Calculate directly here to ensure current hostname is used
@@ -60,66 +64,107 @@ function App() {
     const apiBase = hostname === 'localhost' || hostname === '127.0.0.1' 
       ? 'http://localhost:3001' 
       : `http://${hostname}:3001`;
-    const wsUrl = apiBase.replace(/^http/, 'ws') + '/ws';
-    console.log('[WebSocket] Current hostname:', hostname);
-    console.log('[WebSocket] API Base:', apiBase);
-    console.log('[WebSocket] Connecting to:', wsUrl);
     
-    const newWs = new WebSocket(wsUrl);
-    
-    newWs.onopen = () => {
-      console.log('WebSocket connected successfully to:', wsUrl);
-      setConnected(true);
-      setWs(newWs);
-      wsRef.current = newWs;
-    };
+    const connectWebSocket = () => {
+      // Build WebSocket URL with chatId query parameter if available
+      let wsUrl = apiBase.replace(/^http/, 'ws') + '/ws';
+      if (currentChatId) {
+        wsUrl += `?chatId=${encodeURIComponent(currentChatId)}`;
+      }
+      
+      console.log('[WebSocket] Current hostname:', hostname);
+      console.log('[WebSocket] API Base:', apiBase);
+      console.log('[WebSocket] Connecting to:', wsUrl);
+      console.log('[WebSocket] With chatId:', currentChatId);
+      
+      const newWs = new WebSocket(wsUrl);
+      
+      newWs.onopen = () => {
+        console.log('WebSocket connected successfully to:', wsUrl);
+        setConnected(true);
+        setWs(newWs);
+        wsRef.current = newWs;
+        reconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
+      };
 
-    newWs.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'connected') {
-          console.log('WebSocket connected:', data.wsId);
-          return;
-        }
-
-        if (currentChatId) {
-          // Skip user events from server - we already add them manually in handleSend
-          if (data.type === 'user') {
+      newWs.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'connected') {
+            console.log('WebSocket connected:', data.wsId, 'chatId:', data.chatId);
+            // If backend returned a chatId and we don't have one, restore it
+            if (data.chatId && !currentChatId) {
+              console.log('[WebSocket] Restoring chatId from server:', data.chatId);
+              setCurrentChatId(data.chatId);
+            }
             return;
           }
-          
-          const chatEvent: ChatEvent = {
-            id: `${Date.now()}-${Math.random()}`,
-            chatId: currentChatId,
-            timestamp: Date.now(),
-            type: data.type || 'unknown',
-            subtype: data.subtype,
-            payload: data,
-            raw: event.data,
-          };
-          addEvent(currentChatId, chatEvent);
+
+          if (currentChatId) {
+            // Skip user events from server - we already add them manually in handleSend
+            if (data.type === 'user') {
+              return;
+            }
+            
+            const chatEvent: ChatEvent = {
+              id: `${Date.now()}-${Math.random()}`,
+              chatId: currentChatId,
+              timestamp: Date.now(),
+              type: data.type || 'unknown',
+              subtype: data.subtype,
+              payload: data,
+              raw: event.data,
+            };
+            addEvent(currentChatId, chatEvent);
+          }
+        } catch (e) {
+          console.error('Error parsing WebSocket message:', e);
         }
-      } catch (e) {
-        console.error('Error parsing WebSocket message:', e);
-      }
+      };
+
+      newWs.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        console.error('Failed to connect to:', wsUrl);
+        console.error('Current location:', typeof window !== 'undefined' ? window.location.href : 'N/A');
+        setConnected(false);
+      };
+
+      newWs.onclose = (event) => {
+        console.log('WebSocket closed:', event.code, event.reason);
+        setConnected(false);
+        setWs(null);
+        wsRef.current = null;
+        
+        // Only attempt reconnect if it wasn't a manual close (code 1000) and we haven't exceeded max attempts
+        if (event.code !== 1000 && reconnectAttemptsRef.current < maxReconnectAttempts) {
+          reconnectAttemptsRef.current += 1;
+          const delay = reconnectDelay * Math.min(reconnectAttemptsRef.current, 5); // Exponential backoff, max 5 seconds
+          console.log(`[WebSocket] Attempting to reconnect in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+          
+          reconnectTimeoutRef.current = window.setTimeout(() => {
+            connectWebSocket();
+          }, delay);
+        } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+          console.error('[WebSocket] Max reconnect attempts reached. Please refresh the page.');
+        }
+      };
+
+      return newWs;
     };
 
-    newWs.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      console.error('Failed to connect to:', wsUrl);
-      console.error('Current location:', typeof window !== 'undefined' ? window.location.href : 'N/A');
-      setConnected(false);
-    };
-
-    newWs.onclose = () => {
-      setConnected(false);
-      setWs(null);
-      wsRef.current = null;
-    };
+    const ws = connectWebSocket();
 
     return () => {
-      newWs.close();
+      // Clear any pending reconnection
+      if (reconnectTimeoutRef.current) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      // Close WebSocket connection
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close(1000, 'Component unmounting'); // Normal closure
+      }
     };
   }, [currentChatId]);
 
@@ -252,16 +297,19 @@ function App() {
             }
             
             // Track tool calls in background but don't display them individually
+            // Format reference: docs/cursor_agent_format.md
             if (event.type === 'tool_call') {
-              // Extract tool identifier
+              // Extract tool identifier according to documented format:
+              // payload.toolCall.id is the primary identifier
               let toolId: string;
               if (event.payload?.toolCall?.id) {
+                // Primary: use toolCall.id as specified in documentation
                 toolId = String(event.payload.toolCall.id);
               } else if (event.payload?.id) {
+                // Fallback: use payload.id if toolCall.id is missing
                 toolId = String(event.payload.id);
-              } else if (event.payload?.toolCall?.shellToolCall?.args?.command) {
-                toolId = String(event.payload.toolCall.shellToolCall.args.command);
               } else {
+                // Last resort: generate a unique ID based on timestamp and event ID
                 toolId = `tool-${event.timestamp}-${event.id}`;
               }
               
@@ -353,16 +401,23 @@ function App() {
                   {chatEvent.type === 'user' && chatEvent.payload.prompt}
                   {chatEvent.type === 'assistant' && (
                     (() => {
-                      const content = chatEvent.payload.message?.content || chatEvent.payload.content || chatEvent.payload.text;
+                      // Parse assistant message according to cursor_agent_format.md
+                      // Format: payload.message.content (array of content blocks or string)
+                      const content = chatEvent.payload.message?.content || 
+                                     chatEvent.payload.content || 
+                                     chatEvent.payload.text;
                       if (Array.isArray(content)) {
+                        // Array of content blocks: each has type and text fields
                         return content.map((item, i) => {
                           if (item.type === 'text') {
                             return <span key={i}>{item.text}</span>;
                           }
+                          // Handle other content types (e.g., code blocks) if needed
                           return null;
                         });
                       }
                       if (typeof content === 'string') {
+                        // Direct string content
                         return content;
                       }
                       return null;
@@ -408,10 +463,14 @@ function App() {
           }
           
           // Add latest result event if exists (after messages and tool call status)
+          // Format reference: docs/cursor_agent_format.md
           if (latestResult) {
+            // Result event format: subtype can be 'success' or 'error'
+            // Also check exitCode (0 for success) or is_error flag
+            const exitCode = latestResult.payload?.exitCode ?? (latestResult.payload as any)?.exitCode;
             const isSuccess = latestResult.subtype === 'success' || 
-                              (latestResult.payload.exitCode === 0) || 
-                              (latestResult.payload.is_error === false);
+                              (latestResult.subtype !== 'error' &&
+                               (exitCode === 0 || latestResult.payload?.is_error === false));
             elements.push(
               <div
                 key={latestResult.id}

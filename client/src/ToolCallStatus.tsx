@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import type { ChatEvent } from './types';
 
 interface ToolInfo {
   id: string;
-  started?: any;
-  completed?: any;
+  started?: ChatEvent;
+  completed?: ChatEvent;
 }
 
 interface ToolCallStatusProps {
@@ -12,32 +13,75 @@ interface ToolCallStatusProps {
   tools: ToolInfo[];
 }
 
+/**
+ * Extract tool information from tool call events according to Cursor Agent format.
+ * Supports multiple tool types: shellToolCall, writeFileToolCall, etc.
+ * Format reference: docs/cursor_agent_format.md
+ */
 function ToolCallStatus({ total, completed, tools }: ToolCallStatusProps) {
   const [expanded, setExpanded] = useState(false);
   const pending = total - completed;
   const allCompleted = completed === total && total > 0;
 
-  // Extract tool information
+  // Extract tool information from event according to documented format
   const getToolInfo = (tool: ToolInfo) => {
     const started = tool.started;
-    const payload = started?.payload || {};
-    const toolCall = payload?.toolCall || {};
+    if (!started) {
+      return {
+        toolName: 'Unknown Tool',
+        command: 'Unknown',
+        id: tool.id,
+        description: '',
+      };
+    }
+
+    const payload = started.payload || {};
+    const toolCall = payload.toolCall || {};
     
-    // Try to get command from shellToolCall
-    const command = toolCall?.shellToolCall?.args?.command || 
-                   toolCall?.command || 
-                   payload?.command ||
-                   'Unknown tool';
+    let toolName = 'Tool';
+    let command = '';
+    let description = '';
     
-    // Try to get tool name
-    const toolName = toolCall?.shellToolCall?.name ||
-                    toolCall?.name ||
-                    payload?.name ||
-                    'Tool';
+    // Extract based on tool type according to cursor_agent_format.md
+    if (toolCall.shellToolCall) {
+      // Shell command tool
+      const shellCall = toolCall.shellToolCall;
+      toolName = shellCall.name || 'Shell';
+      command = shellCall.args?.command || '';
+      description = `Execute: ${command}`;
+    } else if (toolCall.writeFileToolCall) {
+      // File write tool
+      const writeCall = toolCall.writeFileToolCall;
+      toolName = 'Write File';
+      command = writeCall.path || '';
+      const contentPreview = writeCall.contents 
+        ? (writeCall.contents.length > 50 
+          ? writeCall.contents.substring(0, 50) + '...' 
+          : writeCall.contents)
+        : '';
+      description = `Write to ${command}${contentPreview ? ` (${contentPreview})` : ''}`;
+    } else if (toolCall.readFileToolCall) {
+      // File read tool
+      const readCall = toolCall.readFileToolCall;
+      toolName = 'Read File';
+      command = readCall.path || '';
+      description = `Read from ${command}`;
+    } else if (toolCall.name) {
+      // Generic tool with name
+      toolName = toolCall.name;
+      command = toolCall.args ? JSON.stringify(toolCall.args) : '';
+      description = `${toolName}${command ? `: ${command}` : ''}`;
+    } else {
+      // Fallback: try to extract from payload directly
+      toolName = payload.name || toolCall.name || 'Tool';
+      command = toolCall.command || payload.command || '';
+      description = command || 'Unknown operation';
+    }
     
     return {
       toolName,
       command: typeof command === 'string' ? command : JSON.stringify(command),
+      description,
       id: tool.id,
     };
   };
@@ -92,9 +136,11 @@ function ToolCallStatus({ total, completed, tools }: ToolCallStatusProps) {
                     <div className="font-medium text-sm text-gray-800 mb-1">
                       {toolInfo.toolName}
                     </div>
-                    <div className="text-xs text-gray-600 font-mono bg-gray-50 p-2 rounded border border-gray-200 break-all">
-                      {toolInfo.command}
-                    </div>
+                    {toolInfo.description && (
+                      <div className="text-xs text-gray-600 font-mono bg-gray-50 p-2 rounded border border-gray-200 break-all">
+                        {toolInfo.description}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
