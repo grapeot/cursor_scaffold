@@ -28,21 +28,38 @@ Perfect for scenarios where you need to develop from mobile devices, view interm
 
 ```
 cursor_client/
-├── client/              # React frontend application
-│   ├── src/             # Source code
-│   ├── .env.example     # Environment variables example file
+├── client/                  # React frontend application
+│   ├── src/                 # Source code
+│   ├── .env.example         # Environment variables example file
 │   └── ...
-├── server/              # Python FastAPI backend service
-│   ├── main.py          # Main application file
-│   ├── requirements.txt # Python dependencies
-│   ├── .env.example     # Environment variables example file
-│   ├── venv/            # Python virtual environment (auto-created)
+├── server/                  # Python FastAPI backend services
+│   ├── main.py              # Main API server (port 3001, with reload)
+│   ├── cursor_server.py     # Cursor Agent server (port 3002, no reload)
+│   ├── requirements.txt     # Python dependencies
+│   ├── .env.example         # Environment variables example file
+│   ├── venv/                # Python virtual environment (auto-created)
 │   └── ...
-├── start_frontend.sh    # Frontend startup script
-├── start_backend.sh     # Backend startup script
-├── design.md            # Product design document
-└── README.md            # This file
+├── docs/                    # Documentation
+│   └── cursor_agent_format.md  # Cursor Agent output format documentation
+├── start_frontend.sh        # Frontend startup script
+├── start_backend.sh         # Main API backend startup script
+├── start_backend_cursor.sh  # Cursor Agent backend startup script
+├── design.md                # Product design document
+└── README.md                # This file
 ```
+
+### Architecture: Two Backend Servers
+
+This project uses **two separate backend servers** to prevent cursor agent processes from being killed during development reloads:
+
+- **Main API Server** (`server/main.py`, port 3001): Handles regular API endpoints. Uses auto-reload for development.
+- **Cursor Agent Server** (`server/cursor_server.py`, port 3002): Handles cursor agent WebSocket connections and chat creation. **NO auto-reload** to preserve cursor agent processes.
+
+The Cursor Agent Server runs without auto-reload because:
+- Cursor agent processes are long-running subprocesses
+- When a server reloads, it kills all active processes
+- This breaks ongoing cursor agent tasks
+- By separating into two servers, the cursor agent server can run continuously while the main API server can reload safely
 
 ## Prerequisites
 
@@ -85,16 +102,14 @@ cursor login
 
 The project provides convenient startup scripts that automatically install dependencies and configure environment variables:
 
-#### Start Backend Server
+**Important**: You need to start **two backend servers**:
+
+#### Start Cursor Agent Server (Required)
+
+This server handles cursor agent operations and **should be started first**. It runs without auto-reload to preserve cursor agent processes.
 
 ```bash
-./start_backend.sh
-```
-
-Or:
-
-```bash
-bash start_backend.sh
+./start_backend_cursor.sh
 ```
 
 The script will automatically:
@@ -102,7 +117,21 @@ The script will automatically:
 - Install Python dependencies (FastAPI, uvicorn, etc.)
 - Configure environment variables (copy from `.env.example` to `.env`)
 - Check if Cursor CLI is available
-- Start FastAPI development server
+- Start Cursor Agent server on port 3002 (no auto-reload)
+
+#### Start Main API Server
+
+This server handles other API endpoints and can reload during development.
+
+```bash
+./start_backend.sh
+```
+
+The script will automatically:
+- Use existing virtual environment (created by cursor server script)
+- Install Python dependencies if needed
+- Configure environment variables
+- Start main API server on port 3001 (with auto-reload)
 
 #### Start Frontend Development Server
 
@@ -191,12 +220,19 @@ cp .env.example .env
 
 ### Using Startup Scripts
 
-**Terminal 1 - Start Backend**:
+**Terminal 1 - Start Cursor Agent Server** (required first):
+```bash
+./start_backend_cursor.sh
+```
+
+Cursor Agent Server runs on `http://localhost:3002` (no auto-reload, preserves cursor agent processes)
+
+**Terminal 2 - Start Main API Server**:
 ```bash
 ./start_backend.sh
 ```
 
-Backend runs on `http://localhost:3001` (listens on all network interfaces `0.0.0.0`, accessible from network)
+Main API Server runs on `http://localhost:3001` (with auto-reload, listens on all network interfaces `0.0.0.0`, accessible from network)
 
 **Terminal 2 - Start Frontend**:
 ```bash
@@ -211,15 +247,32 @@ Frontend runs on:
 
 ### Manual Startup
 
-**Start Backend Server**
+**Start Backend Servers**
 
 Run in `server/` directory:
+
+**Terminal 1 - Cursor Agent Server** (no reload):
 
 ```bash
 # Activate virtual environment
 source venv/bin/activate
 
-# Start FastAPI development server
+# Start Cursor Agent server (port 3002, NO reload)
+uvicorn cursor_server:app --host 0.0.0.0 --port 3002
+```
+
+Or use startup script:
+```bash
+./start_backend_cursor.sh
+```
+
+**Terminal 2 - Main API Server** (with reload):
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Start Main API server (port 3001, WITH reload)
 uvicorn main:app --reload --host 0.0.0.0 --port 3001
 ```
 
@@ -270,10 +323,13 @@ Open browser and access frontend address:
 Using startup scripts (recommended):
 
 ```bash
-# Terminal 1: Start backend
+# Terminal 1: Start Cursor Agent Server (no reload)
+./start_backend_cursor.sh
+
+# Terminal 2: Start Main API Server (with reload)
 ./start_backend.sh
 
-# Terminal 2: Start frontend
+# Terminal 3: Start frontend
 ./start_frontend.sh
 
 # Browser: Access http://localhost:5200
@@ -287,12 +343,17 @@ Using startup scripts (recommended):
 Or manual startup:
 
 ```bash
-# Terminal 1: Start backend
+# Terminal 1: Start Cursor Agent Server (no reload)
+cd server
+source venv/bin/activate
+uvicorn cursor_server:app --host 0.0.0.0 --port 3002
+
+# Terminal 2: Start Main API Server (with reload)
 cd server
 source venv/bin/activate
 uvicorn main:app --reload --host 0.0.0.0 --port 3001
 
-# Terminal 2: Start frontend
+# Terminal 3: Start frontend
 cd client
 npm run dev
 
@@ -301,13 +362,18 @@ npm run dev
 
 ### Command Line Testing
 
-You can also test backend API directly:
+You can also test backend APIs directly:
 
 ```bash
-# Create new session
-curl -X POST http://localhost:3001/api/chat/create
+# Create new session (Cursor Agent Server - port 3002)
+curl -X POST http://localhost:3002/api/chat/create
 
 # Should return something like: {"chatId":"7129401f-5fa1-438f-a7ae-4206fe055b76"}
+
+# Test main API server health (port 3001)
+curl http://localhost:3001/
+
+# Should return: {"status":"ok","service":"Cursor Scaffold Backend"}
 ```
 
 ## Build Production Version
@@ -526,10 +592,13 @@ The `--force` parameter works as: "Force allow commands unless explicitly denied
 ## Development Notes
 
 - Frontend uses Zustand for state management, session data saved in localStorage
-- Backend starts new `cursor agent` process for each request, doesn't maintain long-running subprocess
+- Two backend servers: Main API (port 3001, with reload) and Cursor Agent (port 3002, no reload)
+- Cursor Agent Server starts new `cursor agent` process for each request, doesn't maintain long-running subprocess
 - Session state managed by Cursor internally, accessed via chatId
 - Frontend event history saved locally, won't be lost on page refresh
 - Frontend supports automatic API address detection, works in network environment without manual configuration
+- Frontend automatically connects to port 3002 for cursor agent operations (WebSocket, chat creation)
+- Frontend automatically connects to port 3001 for other API endpoints
 
 ## License
 
