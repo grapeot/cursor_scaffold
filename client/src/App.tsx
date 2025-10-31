@@ -59,21 +59,22 @@ function App() {
   // WebSocket connection with auto-reconnect
   useEffect(() => {
     // Dynamically calculate WebSocket URL at runtime to ensure correct hostname
-    // Calculate directly here to ensure current hostname is used
+    // Use Cursor Agent server (port 3002) for WebSocket connections
     const hostname = window.location.hostname;
-    const apiBase = hostname === 'localhost' || hostname === '127.0.0.1' 
-      ? 'http://localhost:3001' 
-      : `http://${hostname}:3001`;
+    const cursorAgentApiBase = hostname === 'localhost' || hostname === '127.0.0.1' 
+      ? 'http://localhost:3002' 
+      : `http://${hostname}:3002`;
     
     const connectWebSocket = () => {
       // Build WebSocket URL with chatId query parameter if available
-      let wsUrl = apiBase.replace(/^http/, 'ws') + '/ws';
+      // Connect to Cursor Agent server (port 3002, no reload)
+      let wsUrl = cursorAgentApiBase.replace(/^http/, 'ws') + '/ws';
       if (currentChatId) {
         wsUrl += `?chatId=${encodeURIComponent(currentChatId)}`;
       }
       
       console.log('[WebSocket] Current hostname:', hostname);
-      console.log('[WebSocket] API Base:', apiBase);
+      console.log('[WebSocket] Cursor Agent API Base:', cursorAgentApiBase);
       console.log('[WebSocket] Connecting to:', wsUrl);
       console.log('[WebSocket] With chatId:', currentChatId);
       

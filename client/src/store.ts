@@ -34,6 +34,19 @@ const getApiBase = () => {
   return apiUrl;
 };
 
+// Get Cursor Agent server base URL (runs on port 3002, no reload)
+const getCursorAgentApiBase = () => {
+  if (typeof window === 'undefined') {
+    return 'http://localhost:3002';
+  }
+  const hostname = window.location.hostname;
+  const apiUrl = hostname === 'localhost' || hostname === '127.0.0.1' 
+    ? 'http://localhost:3002' 
+    : `http://${hostname}:3002`;
+  console.log('[getCursorAgentApiBase] hostname:', hostname, '-> Cursor Agent API URL:', apiUrl);
+  return apiUrl;
+};
+
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -70,33 +83,11 @@ export const useAppStore = create<AppState>()(
 
       createChat: async () => {
         try {
-          // Dynamically calculate API base URL at runtime to ensure correct hostname
-          let apiBase: string;
+          // Use Cursor Agent server (port 3002) for chat creation
+          const cursorAgentApiBase = getCursorAgentApiBase();
+          console.log('[createChat] Using Cursor Agent API:', cursorAgentApiBase);
           
-          // Check environment variable (if set to localhost, ignore it when accessing from non-localhost)
-          const envApiUrl = import.meta.env.VITE_API_URL;
-          const isEnvLocalhost = envApiUrl && (envApiUrl.includes('localhost') || envApiUrl.includes('127.0.0.1'));
-          console.log('[createChat] env.VITE_API_URL:', envApiUrl, 'isEnvLocalhost:', isEnvLocalhost);
-          
-          // If environment variable is set to localhost but current access is not localhost, ignore env var and use auto-detection
-          if (envApiUrl && (!isEnvLocalhost || (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')))) {
-            apiBase = envApiUrl;
-            console.log('[createChat] Using env API URL:', apiBase);
-          } else if (typeof window !== 'undefined') {
-            const hostname = window.location.hostname;
-            const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-            apiBase = isLocalhost 
-              ? 'http://localhost:3001' 
-              : `http://${hostname}:3001`;
-            console.log('[createChat] Computed API from hostname:', apiBase, 'isLocalhost:', isLocalhost, 'hostname:', hostname);
-          } else {
-            apiBase = 'http://localhost:3001';
-            console.log('[createChat] Using default API (no window):', apiBase);
-          }
-          
-          console.log('[createChat] Final API URL:', apiBase);
-          
-          const response = await fetch(`${apiBase}/api/chat/create`, {
+          const response = await fetch(`${cursorAgentApiBase}/api/chat/create`, {
             method: 'POST',
           });
           
