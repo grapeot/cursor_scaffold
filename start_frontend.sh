@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Cursor Client - Frontend 启动脚本
+# Cursor Scaffold - Frontend Startup Script
 
 set -e
 

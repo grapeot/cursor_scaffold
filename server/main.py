@@ -213,7 +213,7 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
 @app.get("/")
 async def root():
     """Health check endpoint"""
-    return {"status": "ok", "service": "Cursor Client Backend"}
+    return {"status": "ok", "service": "Cursor Scaffold Backend"}
 
 
 if __name__ == "__main__":

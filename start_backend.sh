@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Cursor Client - Backend 启动脚本 (FastAPI)
+# Cursor Scaffold - Backend Startup Script (FastAPI)
 
 set -e
 
