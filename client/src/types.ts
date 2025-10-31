@@ -14,4 +14,3 @@ export interface ChatEvent {
   payload: any;
   raw: string;
 }
-

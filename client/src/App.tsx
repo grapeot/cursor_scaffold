@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAppStore } from './store';
-import { ChatEvent } from './types';
+import type { ChatEvent } from './types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001/ws';
 
 function App() {
   const { currentChatId, events, addEvent, getEvents, createChat, setCurrentChatId } = useAppStore();
@@ -19,7 +19,10 @@ function App() {
       if (!currentChatId) {
         try {
           const chatId = await createChat();
-        setCurrentChatId(chatId);
+          setCurrentChatId(chatId);
+        } catch (error) {
+          console.error('Failed to create chat:', error);
+        }
       }
     };
     init();
@@ -83,9 +86,9 @@ function App() {
   }, [events, currentChatId]);
 
   const handleSend = () => {
-    if (!input.trim() || !currentChatId || !ws || !connected) return;
+    if (!input || !currentChatId || !ws || !connected) return;
 
-    const prompt = input.trim();
+    const prompt = input; // 保留原始输入，包括 tab 和换行
     setInput('');
 
     // 添加用户消息事件
@@ -141,49 +144,94 @@ function App() {
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {currentEvents.map((event) => (
-          <div
-            key={event.id}
-            className={`p-3 rounded-lg ${
-              event.type === 'user'
-                ? 'bg-blue-500 text-white ml-auto max-w-[80%]'
-                : event.type === 'assistant'
-                ? 'bg-white border border-gray-200 mr-auto max-w-[80%]'
-                : event.type === 'tool_call'
-                ? 'bg-yellow-50 border border-yellow-200 mr-auto max-w-[90%]'
-                : event.type === 'error'
-                ? 'bg-red-50 border border-red-200 mr-auto max-w-[90%]'
-                : 'bg-gray-50 border border-gray-200 mr-auto max-w-[90%] text-sm'
-            }`}
-          >
-            {event.type === 'user' && <div className="font-medium mb-1">用户:</div>}
-            {event.type === 'assistant' && <div className="font-medium mb-1">助手:</div>}
-            {event.type === 'tool_call' && <div className="font-medium mb-1">工具调用:</div>}
-            {event.type === 'error' && <div className="font-medium mb-1 text-red-600">错误:</div>}
+        {currentEvents
+          .filter((event) => {
+            // 过滤掉不需要显示的事件类型
+            if (event.type === 'thinking' && event.subtype === 'delta') {
+              return false; // 不显示思考中的 delta 事件
+            }
+            if (event.type === 'system' && event.subtype === 'init') {
+              return false; // 不显示系统初始化事件
+            }
+            return true;
+          })
+          .map((event, index, array) => {
+            // 合并连续的思考事件
+            if (event.type === 'thinking') {
+              const nextNonThinking = array.findIndex((e, i) => i > index && e.type !== 'thinking');
+              const isLastThinking = nextNonThinking === -1 || array[nextNonThinking - 1].type === 'thinking';
+              
+              if (!isLastThinking) {
+                return null; // 跳过中间的思考事件，只显示最后一个
+              }
+            }
             
-            <div className="whitespace-pre-wrap break-words">
-              {event.type === 'user' && event.payload.prompt}
-              {event.type === 'assistant' && (event.payload.content || event.payload.text || JSON.stringify(event.payload, null, 2))}
-              {event.type === 'tool_call' && (
-                <pre className="text-xs overflow-x-auto">
-                  {JSON.stringify(event.payload, null, 2)}
-                </pre>
-              )}
-              {event.type === 'error' && event.payload.message}
-              {event.type === 'thinking' && '思考中...'}
-              {event.type === 'raw' && event.payload.data}
-              {!['user', 'assistant', 'tool_call', 'error', 'thinking', 'raw'].includes(event.type) && (
-                <pre className="text-xs overflow-x-auto">
-                  {JSON.stringify(event.payload, null, 2)}
-                </pre>
-              )}
-            </div>
-            
-            <div className="text-xs opacity-70 mt-1">
-              {new Date(event.timestamp).toLocaleTimeString()}
-            </div>
-          </div>
-        ))}
+            return (
+              <div
+                key={event.id}
+                className={`p-3 rounded-lg ${
+                  event.type === 'user'
+                    ? 'bg-blue-500 text-white ml-auto max-w-[80%]'
+                    : event.type === 'assistant'
+                    ? 'bg-white border border-gray-200 mr-auto max-w-[80%]'
+                    : event.type === 'tool_call'
+                    ? 'bg-yellow-50 border border-yellow-200 mr-auto max-w-[90%]'
+                    : event.type === 'error'
+                    ? 'bg-red-50 border border-red-200 mr-auto max-w-[90%]'
+                    : event.type === 'thinking'
+                    ? 'bg-gray-100 border border-gray-200 mr-auto max-w-[80%] text-sm opacity-70'
+                    : 'bg-gray-50 border border-gray-200 mr-auto max-w-[90%] text-sm'
+                }`}
+              >
+                {event.type === 'user' && <div className="font-medium mb-1">用户:</div>}
+                {event.type === 'assistant' && <div className="font-medium mb-1">助手:</div>}
+                {event.type === 'tool_call' && <div className="font-medium mb-1">工具调用:</div>}
+                {event.type === 'error' && <div className="font-medium mb-1 text-red-600">错误:</div>}
+                {event.type === 'thinking' && <div className="font-medium mb-1 text-gray-600">思考中...</div>}
+                
+                <div className="whitespace-pre-wrap break-words">
+                  {event.type === 'user' && event.payload.prompt}
+                  {event.type === 'assistant' && (
+                    (() => {
+                      const content = event.payload.message?.content || event.payload.content || event.payload.text;
+                      if (Array.isArray(content)) {
+                        return content.map((item, i) => {
+                          if (item.type === 'text') {
+                            return <span key={i}>{item.text}</span>;
+                          }
+                          return null;
+                        });
+                      }
+                      if (typeof content === 'string') {
+                        return content;
+                      }
+                      return null;
+                    })()
+                  )}
+                  {event.type === 'tool_call' && event.subtype === 'started' && (
+                    <div className="text-xs">执行中...</div>
+                  )}
+                  {event.type === 'tool_call' && event.subtype === 'completed' && (
+                    <div className="text-xs text-green-600">✓ 完成</div>
+                  )}
+                  {event.type === 'error' && event.payload.message}
+                  {event.type === 'thinking' && ''}
+                  {!['user', 'assistant', 'tool_call', 'error', 'thinking'].includes(event.type) && (
+                    <pre className="text-xs overflow-x-auto">
+                      {JSON.stringify(event.payload, null, 2)}
+                    </pre>
+                  )}
+                </div>
+                
+                {event.type !== 'thinking' && (
+                  <div className="text-xs opacity-70 mt-1">
+                    {new Date(event.timestamp).toLocaleTimeString()}
+                  </div>
+                )}
+              </div>
+            );
+          })
+          .filter(Boolean)}
         <div ref={messagesEndRef} />
       </div>
 
@@ -206,7 +254,7 @@ function App() {
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || !connected || !currentChatId}
+            disabled={!input || input.trim().length === 0 || !connected || !currentChatId}
             className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
           >
             发送

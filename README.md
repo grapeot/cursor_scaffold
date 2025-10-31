@@ -10,9 +10,11 @@ cursor_client/
 │   ├── src/             # 源代码
 │   ├── .env.example     # 环境变量示例文件
 │   └── ...
-├── server/              # Node.js 后端服务
-│   ├── src/             # 源代码
+├── server/              # Python FastAPI 后端服务
+│   ├── main.py          # 主应用文件
+│   ├── requirements.txt # Python 依赖
 │   ├── .env.example     # 环境变量示例文件
+│   ├── venv/            # Python 虚拟环境（自动创建）
 │   └── ...
 ├── start_frontend.sh    # 前端启动脚本
 ├── start_backend.sh     # 后端启动脚本
@@ -22,10 +24,15 @@ cursor_client/
 
 ## 前置要求
 
-- Node.js (推荐 v18+)
-- npm 或 yarn
-- Cursor CLI (已安装并可在命令行访问 `cursor` 命令)
-- Cursor 账户已登录并配置
+- **前端**：
+  - Node.js (推荐 v18+)
+  - npm 或 yarn
+- **后端**：
+  - Python 3.10+
+  - uv (推荐，用于管理虚拟环境) 或 pip
+- **其他**：
+  - Cursor CLI (已安装并可在命令行访问 `cursor` 命令)
+  - Cursor 账户已登录并配置
 
 ## 快速开始
 
@@ -46,10 +53,11 @@ bash start_backend.sh
 ```
 
 脚本会自动：
-- 检查并安装后端依赖
+- 创建 Python 虚拟环境（使用 uv）
+- 安装 Python 依赖（FastAPI, uvicorn 等）
 - 配置环境变量（从 `.env.example` 复制到 `.env`）
 - 检查 Cursor CLI 是否可用
-- 启动开发服务器
+- 启动 FastAPI 开发服务器
 
 #### 启动前端开发服务器
 
@@ -79,9 +87,21 @@ npm install
 ```
 
 **后端依赖**
+
+使用 uv（推荐）：
 ```bash
 cd server
-npm install
+uv venv
+source venv/bin/activate
+uv pip install -r requirements.txt
+```
+
+或使用 pip：
+```bash
+cd server
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
 #### 2. 配置环境变量
@@ -143,7 +163,16 @@ cp .env.example .env
 在 `server/` 目录下运行：
 
 ```bash
-npm run dev
+# 激活虚拟环境
+source venv/bin/activate
+
+# 启动 FastAPI 开发服务器
+uvicorn main:app --reload --host 0.0.0.0 --port 3001
+```
+
+或使用启动脚本：
+```bash
+./start_backend.sh
 ```
 
 **启动前端开发服务器**
@@ -204,7 +233,8 @@ npm run dev
 ```bash
 # 终端 1: 启动后端
 cd server
-npm run dev
+source venv/bin/activate
+uvicorn main:app --reload --host 0.0.0.0 --port 3001
 
 # 终端 2: 启动前端
 cd client
@@ -237,12 +267,19 @@ npm run build
 
 ### 构建后端
 
+FastAPI 后端不需要构建步骤，直接运行 Python 代码即可。对于生产环境，建议使用：
+
 ```bash
 cd server
-npm run build
+source venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 3001
 ```
 
-构建产物在 `server/dist/` 目录
+或使用 Gunicorn + Uvicorn workers（推荐用于生产环境）：
+```bash
+pip install gunicorn
+gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:3001
+```
 
 ## 部署
 
@@ -272,23 +309,25 @@ npm run build
 
 ### 后端部署
 
-后端需要部署到支持 Node.js 的服务器：
+后端需要部署到支持 Python 的服务器：
 
-1. **使用 PM2**（推荐）
+1. **使用 Gunicorn + Uvicorn**（推荐用于生产环境）
    ```bash
    cd server
-   npm run build
-   pm2 start dist/index.js --name cursor-server
+   source venv/bin/activate
+   pip install gunicorn
+   gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:3001
    ```
 
 2. **使用 systemd**（Linux）
    - 创建 systemd service 文件
-   - 设置工作目录和执行命令
+   - 设置工作目录和执行命令为 `gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker`
 
 3. **部署到云平台**
-   - **Heroku**: 设置 `package.json` 的 `start` 脚本，Heroku 会自动运行
-   - **Railway**: 类似配置
-   - **Render**: 设置构建和启动命令
+   - **Heroku**: 创建 `Procfile`，内容为 `web: uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Railway**: 设置启动命令为 `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Render**: 设置构建命令为 `pip install -r requirements.txt`，启动命令为 `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Fly.io**: 创建 `fly.toml` 配置，使用 `uvicorn main:app` 启动
 
 ### 环境变量配置
 
@@ -303,7 +342,6 @@ VITE_WS_URL=wss://your-backend-domain.com
 **后端**：
 ```env
 PORT=3001
-NODE_ENV=production
 ```
 
 ### 完整部署示例（本地服务器）
@@ -368,9 +406,12 @@ NODE_ENV=production
 
 ### 后端无法启动
 
-- 检查 Node.js 版本是否满足要求
+- 检查 Python 版本是否满足要求（Python 3.10+）：运行 `python3 --version`
+- 检查虚拟环境是否正确创建和激活
+- 检查依赖是否正确安装：运行 `pip list | grep fastapi`
 - 检查 `cursor` 命令是否在 PATH 中：运行 `which cursor`
 - 检查 Cursor 是否已登录：运行 `cursor agent create-chat` 测试
+- 检查 `uv` 是否已安装（如果使用启动脚本）：运行 `which uv`
 
 ### 前端无法连接后端
 

@@ -32,3 +32,12 @@ client/.vite
 # Server build
 server/dist/
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+server/venv/
+server/__pycache__/
+
