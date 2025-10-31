@@ -318,14 +318,17 @@ function App() {
           });
           
           // Close any remaining tool group
-          if (currentToolGroup !== null && currentToolGroup.length > 0) {
-            const firstEvent = currentToolGroup[0];
-            filteredEvents.push({
-              type: 'tool_call_group',
-              toolCalls: [...currentToolGroup], // Copy array to avoid mutation
-              id: `tool-group-${firstEvent.id}`,
-              timestamp: firstEvent.timestamp
-            });
+          if (currentToolGroup) {
+            const group = currentToolGroup;
+            if (group.length > 0) {
+              const firstEvent = group[0];
+              filteredEvents.push({
+                type: 'tool_call_group',
+                toolCalls: [...group], // Copy array to avoid mutation
+                id: `tool-group-${firstEvent.id}`,
+                timestamp: firstEvent.timestamp
+              });
+            }
           }
           
           return filteredEvents.map((event) => {
