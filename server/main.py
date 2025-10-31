@@ -90,7 +90,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     logger.info(f"  - Prompt has newlines: {'\\n' in prompt}")
                     
                     # 执行 cursor 命令
-                    cmd = ['cursor', 'agent', '--print', '--output-format', 'stream-json', '--resume', chat_id, prompt]
+                    # 使用 --force 参数来绕过沙箱限制，允许文件写入等操作
+                    cmd = ['cursor', 'agent', '--print', '--output-format', 'stream-json', '--force', '--resume', chat_id, prompt]
                     
                     logger.info("Spawning cursor command:")
                     logger.info(f"  - Command: cursor")
