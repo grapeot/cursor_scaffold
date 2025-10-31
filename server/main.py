@@ -3,14 +3,15 @@ import json
 import logging
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 import re
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 from bs4 import BeautifulSoup
+import yfinance as yf
 
 # Configure logging
 logging.basicConfig(
@@ -33,6 +34,30 @@ app.add_middleware(
 
 # WebSocket connection management
 ws_connections: dict[str, WebSocket] = {}
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up all active processes on server shutdown"""
+    logger.info("Server shutting down, cleaning up active processes...")
+    if _active_processes:
+        logger.info(f"Terminating {len(_active_processes)} active cursor processes...")
+        for pid, process in list(_active_processes.items()):
+            try:
+                if process.returncode is None:  # Process is still running
+                    logger.info(f"Terminating process {pid}...")
+                    process.terminate()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=2.0)
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Process {pid} did not terminate gracefully, killing...")
+                        process.kill()
+                        await process.wait()
+                    logger.info(f"Process {pid} terminated")
+            except Exception as e:
+                logger.error(f"Error terminating process {pid}: {e}")
+        _active_processes.clear()
+        logger.info("All processes cleaned up")
 
 
 @app.post("/api/chat/create")
@@ -60,22 +85,34 @@ async def create_chat():
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, chatId: Optional[str] = Query(None)):
     """WebSocket endpoint, handles message sending and streaming responses"""
     await websocket.accept()
     ws_id = f"{datetime.now().timestamp()}-{id(websocket)}"
     ws_connections[ws_id] = websocket
     
-    logger.info(f"WebSocket connection opened: {ws_id}")
+    logger.info(f"WebSocket connection opened: {ws_id}, chatId: {chatId}")
     
-    # Send connection success message
-    await websocket.send_json({"type": "connected", "wsId": ws_id})
+    # Send connection success message with chatId
+    await websocket.send_json({"type": "connected", "wsId": ws_id, "chatId": chatId})
     
     try:
+        logger.info(f"WebSocket entering receive loop for {ws_id}")
         while True:
             # Receive message
-            message_str = await websocket.receive_text()
-            logger.info(f"WebSocket received message from {ws_id}: {message_str[:200]}")
+            try:
+                message_str = await websocket.receive_text()
+                logger.info(f"WebSocket received message from {ws_id}: {message_str[:200]}")
+            except WebSocketDisconnect as disconnect:
+                # Normal client disconnect (e.g., page reload, navigation)
+                # WebSocketDisconnect is raised with code and reason: (code, reason)
+                logger.info(f"WebSocket client disconnected: {ws_id} (code: {disconnect.code}, reason: {disconnect.reason})")
+                raise  # Re-raise to be caught by outer WebSocketDisconnect handler
+            except Exception as recv_error:
+                # Other errors during receive
+                logger.error(f"Error receiving message from {ws_id}: {recv_error}")
+                logger.error(f"Error type: {type(recv_error)}")
+                raise
             
             try:
                 data = json.loads(message_str)
@@ -118,8 +155,8 @@ async def websocket_endpoint(websocket: WebSocket):
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
                 
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket connection closed: {ws_id}")
+    except WebSocketDisconnect as disconnect:
+        logger.info(f"WebSocket connection closed: {ws_id} (code: {disconnect.code}, reason: {disconnect.reason})")
     except Exception as e:
         logger.error(f"WebSocket error for {ws_id}: {e}")
     finally:
@@ -127,8 +164,12 @@ async def websocket_endpoint(websocket: WebSocket):
             del ws_connections[ws_id]
 
 
+# Track active cursor processes for cleanup on server shutdown
+_active_processes: dict[int, asyncio.subprocess.Process] = {}
+
 async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: str):
     """Process cursor command execution and stream output"""
+    process = None
     try:
         # Create subprocess using asyncio
         process = await asyncio.create_subprocess_exec(
@@ -136,6 +177,10 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
+        
+        # Track the process for cleanup on disconnect
+        if process.pid:
+            _active_processes[process.pid] = process
         
         logger.info(f"Process spawned, PID: {process.pid}")
         
@@ -211,12 +256,42 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
             "exitCode": return_code
         })
         
+        # Clean up process reference after completion
+        if process and process.pid and process.pid in _active_processes:
+            del _active_processes[process.pid]
+        
+    except WebSocketDisconnect:
+        # Client disconnected while process is running
+        # Kill the process to prevent orphaned processes
+        if process and process.pid:
+            logger.warning(f"Client disconnected while process {process.pid} is running. Terminating process...")
+            try:
+                process.terminate()
+                # Wait a bit for graceful termination
+                await asyncio.wait_for(process.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                # Force kill if it doesn't terminate gracefully
+                logger.warning(f"Process {process.pid} did not terminate gracefully, killing...")
+                process.kill()
+                await process.wait()
+            finally:
+                if process.pid and process.pid in _active_processes:
+                    del _active_processes[process.pid]
+            logger.info(f"Process {process.pid} terminated due to client disconnect")
+        raise  # Re-raise to be handled by outer handler
+        
     except Exception as error:
         logger.error(f"Process error: {error}")
-        await websocket.send_json({
-            "type": "error",
-            "message": str(error)
-        })
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": str(error)
+            })
+        except:
+            pass  # WebSocket might be closed
+        # Clean up process reference
+        if process and process.pid and process.pid in _active_processes:
+            del _active_processes[process.pid]
 
 
 def detect_language(text: str) -> str:
@@ -439,6 +514,59 @@ async def get_yage_articles():
     logger.info("Fetching articles from yage.ai")
     articles = find_articles_from_yage()
     return {"articles": articles, "count": len(articles)}
+
+
+@app.get("/api/stock/amazon")
+async def get_amazon_stock():
+    """Fetch Amazon stock price data for today"""
+    try:
+        ticker = yf.Ticker("AMZN")
+        
+        # Get today's data with 1-minute intervals (if market is open)
+        # If market is closed, get the latest available data
+        today = datetime.now().date()
+        
+        # Try to get intraday data (1-minute intervals) for today
+        # If market is closed or data not available, fallback to daily data
+        try:
+            # Get intraday data for today
+            hist = ticker.history(period="1d", interval="1m")
+            if hist.empty:
+                # Fallback to daily data - get last 5 days
+                hist = ticker.history(period="5d", interval="1d")
+        except Exception:
+            # Fallback to daily data
+            hist = ticker.history(period="5d", interval="1d")
+        
+        if hist.empty:
+            raise HTTPException(status_code=404, detail="No stock data available")
+        
+        # Convert to list of dictionaries with timestamp and price
+        data = []
+        for timestamp, row in hist.iterrows():
+            data.append({
+                "time": timestamp.isoformat(),
+                "open": float(row["Open"]),
+                "high": float(row["High"]),
+                "low": float(row["Low"]),
+                "close": float(row["Close"]),
+                "volume": int(row["Volume"])
+            })
+        
+        # Get current info
+        info = ticker.info
+        current_price = info.get("currentPrice") or info.get("regularMarketPrice") or data[-1]["close"]
+        
+        return {
+            "symbol": "AMZN",
+            "name": info.get("longName", "Amazon.com Inc."),
+            "currentPrice": float(current_price),
+            "data": data,
+            "lastUpdate": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error fetching Amazon stock data: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch stock data: {str(e)}")
 
 
 @app.get("/")

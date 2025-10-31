@@ -182,7 +182,40 @@ function App() {
   }, [input]);
 
   const handleSend = () => {
-    if (!input || !currentChatId || !ws || !connected) return;
+    // Use wsRef.current to ensure we have the latest WebSocket connection
+    const currentWs = wsRef.current;
+    
+    console.log('[handleSend] Called with:', {
+      hasInput: !!input,
+      inputLength: input?.length || 0,
+      currentChatId,
+      hasWs: !!currentWs,
+      hasWsState: !!ws,
+      connected,
+      wsReadyState: currentWs?.readyState,
+      wsReadyStateText: currentWs ? ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][currentWs.readyState] : 'N/A'
+    });
+
+    if (!input || !currentChatId) {
+      console.warn('[handleSend] Cannot send: missing input or chatId', {
+        hasInput: !!input,
+        currentChatId
+      });
+      return;
+    }
+
+    if (!currentWs) {
+      console.error('[handleSend] No WebSocket connection available');
+      return;
+    }
+
+    // Check WebSocket ready state
+    if (currentWs.readyState !== WebSocket.OPEN) {
+      console.error('[handleSend] WebSocket not open, readyState:', currentWs.readyState, {
+        stateText: ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][currentWs.readyState]
+      });
+      return;
+    }
 
     const prompt = input; // Preserve original input, including tabs and newlines
     setInput('');
@@ -203,12 +236,29 @@ function App() {
     };
     addEvent(currentChatId, userEvent);
 
-    // Send message via WebSocket
-    ws.send(JSON.stringify({
+    // Prepare message to send
+    const message = {
       type: 'send',
       chatId: currentChatId,
       prompt,
-    }));
+    };
+    const messageStr = JSON.stringify(message);
+    
+    console.log('[handleSend] Sending message:', {
+      messageType: message.type,
+      chatId: message.chatId,
+      promptLength: prompt.length,
+      promptPreview: prompt.substring(0, 50),
+      messageSize: messageStr.length,
+      wsUrl: (currentWs as any).url || 'N/A'
+    });
+
+    try {
+      currentWs.send(messageStr);
+      console.log('[handleSend] Message sent successfully via WebSocket');
+    } catch (error) {
+      console.error('[handleSend] Error sending message:', error);
+    }
   };
 
   const handleNewChat = async () => {
@@ -345,18 +395,32 @@ function App() {
           const latestResult = resultEvents.length > 0 ? resultEvents[resultEvents.length - 1] : null;
           const nonResultEvents = filteredEvents.filter(e => e.type !== 'result');
           
-          // Calculate tool call status: count total started and completed
-          const toolCalls = Array.from(toolCallMap.entries()).map(([id, tool]) => ({
-            id,
-            ...tool,
-          })).filter(tool => tool.started); // Only include tools that have started
-          const totalToolCalls = toolCalls.length;
-          const completedToolCalls = toolCalls.filter(tool => tool.completed).length;
+          // Find the last user message to limit tool call counting to current conversation turn
+          // Only count tool calls from the most recent user message onwards
+          const userMessages = currentEvents.filter(e => e.type === 'user');
+          const lastUserMessage = userMessages.length > 0 ? userMessages[userMessages.length - 1] : null;
+          const lastUserTimestamp = lastUserMessage?.timestamp || 0;
+          
+          // Filter tool calls to only include those from the current conversation turn
+          // (i.e., tool calls that occurred after the last user message)
+          const currentTurnToolCalls = Array.from(toolCallMap.entries())
+            .map(([id, tool]) => ({
+              id,
+              ...tool,
+            }))
+            .filter(tool => {
+              // Only include tools that started after the last user message
+              if (!tool.started) return false;
+              return tool.started.timestamp >= lastUserTimestamp;
+            });
+          
+          const totalToolCalls = currentTurnToolCalls.length;
+          const completedToolCalls = currentTurnToolCalls.filter(tool => tool.completed).length;
           const hasActiveToolCalls = totalToolCalls > 0 && completedToolCalls < totalToolCalls;
           const allToolCallsFinished = totalToolCalls > 0 && completedToolCalls === totalToolCalls;
           
           // Find the latest tool call event to check if it's still the most recent
-          const toolCallEvents = currentEvents.filter(e => e.type === 'tool_call');
+          const toolCallEvents = currentEvents.filter(e => e.type === 'tool_call' && e.timestamp >= lastUserTimestamp);
           const latestToolCallEvent = toolCallEvents.length > 0 ? toolCallEvents[toolCallEvents.length - 1] : null;
           const latestNonToolCallEvent = nonResultEvents.length > 0 ? nonResultEvents[nonResultEvents.length - 1] : null;
           
@@ -457,7 +521,7 @@ function App() {
                 key="tool-call-status"
                 total={totalToolCalls}
                 completed={completedToolCalls}
-                tools={toolCalls}
+                tools={currentTurnToolCalls}
               />
             );
           }
