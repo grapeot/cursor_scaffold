@@ -3,12 +3,16 @@ import { useAppStore } from './store';
 import type { ChatEvent } from './types';
 
 // 自动检测 API 地址：优先使用环境变量，否则根据当前访问地址自动推断
+// 注意：这个函数必须在运行时调用，不能在模块加载时调用
 const getApiBase = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  // 如果是网络访问，使用当前主机名；否则使用 localhost
-  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  // 必须在运行时获取，确保使用正确的 hostname
+  if (typeof window === 'undefined') {
+    return 'http://localhost:3001';
+  }
+  const hostname = window.location.hostname;
   return hostname === 'localhost' || hostname === '127.0.0.1' 
     ? 'http://localhost:3001' 
     : `http://${hostname}:3001`;
@@ -20,11 +24,10 @@ const getWsUrl = () => {
   }
   const apiBase = getApiBase();
   // 将 http:// 转换为 ws://
-  return apiBase.replace(/^http/, 'ws') + '/ws';
+  const wsUrl = apiBase.replace(/^http/, 'ws') + '/ws';
+  console.log('[getWsUrl] API Base:', apiBase, '-> WS URL:', wsUrl);
+  return wsUrl;
 };
-
-// 在模块级别先设置默认值，但会在组件中动态计算
-const API_BASE = getApiBase();
 
 function App() {
   const { currentChatId, events, addEvent, getEvents, createChat, setCurrentChatId } = useAppStore();
@@ -52,9 +55,15 @@ function App() {
   // WebSocket 连接
   useEffect(() => {
     // 在运行时动态计算 WebSocket URL，确保使用正确的 hostname
-    const wsUrl = getWsUrl();
-    console.log('Connecting to WebSocket:', wsUrl);
-    console.log('Current hostname:', typeof window !== 'undefined' ? window.location.hostname : 'N/A');
+    // 直接在这里计算，确保使用当前的 hostname
+    const hostname = window.location.hostname;
+    const apiBase = hostname === 'localhost' || hostname === '127.0.0.1' 
+      ? 'http://localhost:3001' 
+      : `http://${hostname}:3001`;
+    const wsUrl = apiBase.replace(/^http/, 'ws') + '/ws';
+    console.log('[WebSocket] Current hostname:', hostname);
+    console.log('[WebSocket] API Base:', apiBase);
+    console.log('[WebSocket] Connecting to:', wsUrl);
     
     const newWs = new WebSocket(wsUrl);
     

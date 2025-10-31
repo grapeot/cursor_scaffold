@@ -17,21 +17,22 @@ interface AppState {
 }
 
 // 自动检测 API 地址：优先使用环境变量，否则根据当前访问地址自动推断
+// 注意：这个函数必须在运行时调用，不能在模块加载时调用
 const getApiBase = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  // 如果是网络访问，使用当前主机名；否则使用 localhost
-  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  // 必须在运行时获取，确保使用正确的 hostname
+  if (typeof window === 'undefined') {
+    return 'http://localhost:3001';
+  }
+  const hostname = window.location.hostname;
   const apiUrl = hostname === 'localhost' || hostname === '127.0.0.1' 
     ? 'http://localhost:3001' 
     : `http://${hostname}:3001`;
-  console.log('API Base URL:', apiUrl, 'hostname:', hostname);
+  console.log('[getApiBase] hostname:', hostname, '-> API URL:', apiUrl);
   return apiUrl;
 };
-
-// 在运行时动态获取，而不是在模块加载时
-const getApiBaseDynamic = () => getApiBase();
 
 export const useAppStore = create<AppState>()(
   persist(
@@ -69,7 +70,7 @@ export const useAppStore = create<AppState>()(
 
       createChat: async () => {
         try {
-          const apiBase = getApiBaseDynamic();
+          const apiBase = getApiBase();
           console.log('Creating chat with API:', apiBase);
           const response = await fetch(`${apiBase}/api/chat/create`, {
             method: 'POST',
