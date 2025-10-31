@@ -15,6 +15,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<Tab>('chat');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Initialize: create session or restore existing session
   useEffect(() => {
@@ -82,6 +83,11 @@ function App() {
         }
 
         if (currentChatId) {
+          // Skip user events from server - we already add them manually in handleSend
+          if (data.type === 'user') {
+            return;
+          }
+          
           const chatEvent: ChatEvent = {
             id: `${Date.now()}-${Math.random()}`,
             chatId: currentChatId,
@@ -121,11 +127,24 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [events, currentChatId]);
 
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+    }
+  }, [input]);
+
   const handleSend = () => {
     if (!input || !currentChatId || !ws || !connected) return;
 
     const prompt = input; // Preserve original input, including tabs and newlines
     setInput('');
+    
+    // Reset textarea height after sending
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '40px';
+    }
 
     // Add user message event
     const userEvent: ChatEvent = {
@@ -219,6 +238,9 @@ function App() {
           // Process events, filter and merge
           const filteredEvents: ChatEvent[] = [];
           
+          // Track tool calls in the background
+          const toolCallMap = new Map<string, { started?: ChatEvent; completed?: ChatEvent }>();
+          
           currentEvents.forEach((event, index) => {
             // Filter out events that don't need to be displayed
             if (event.type === 'thinking' && event.subtype === 'delta') {
@@ -228,8 +250,35 @@ function App() {
               return; // Skip system initialization
             }
             
-            // Skip tool_call events entirely - don't display them
+            // Track tool calls in background but don't display them individually
             if (event.type === 'tool_call') {
+              // Extract tool identifier
+              let toolId: string;
+              if (event.payload?.toolCall?.id) {
+                toolId = String(event.payload.toolCall.id);
+              } else if (event.payload?.id) {
+                toolId = String(event.payload.id);
+              } else if (event.payload?.toolCall?.shellToolCall?.args?.command) {
+                toolId = String(event.payload.toolCall.shellToolCall.args.command);
+              } else {
+                toolId = `tool-${event.timestamp}-${event.id}`;
+              }
+              
+              if (!toolCallMap.has(toolId)) {
+                toolCallMap.set(toolId, {});
+              }
+              
+              const tool = toolCallMap.get(toolId)!;
+              if (event.subtype === 'started') {
+                tool.started = event;
+              } else if (event.subtype === 'completed') {
+                tool.completed = event;
+              }
+              return; // Don't add to filteredEvents
+            }
+            
+            // Skip empty user messages
+            if (event.type === 'user' && (!event.payload.prompt || event.payload.prompt.trim() === '')) {
               return;
             }
             
@@ -246,8 +295,63 @@ function App() {
             }
           });
           
-          return filteredEvents.map((chatEvent) => {
-            return (
+          // Check tool call status: if there are any tool calls, show unified status
+          const toolCalls = Array.from(toolCallMap.values());
+          const hasToolCalls = toolCalls.length > 0;
+          const hasRunningTools = toolCalls.some(tool => tool.started && !tool.completed);
+          const allToolsCompleted = toolCalls.length > 0 && toolCalls.every(tool => tool.completed);
+          
+          const elements: React.ReactNode[] = [];
+          
+          // Add unified tool call status if there are any tool calls
+          if (hasToolCalls) {
+            elements.push(
+              <div
+                key="tool-call-status"
+                className="mr-auto max-w-[90%] bg-yellow-50 border border-yellow-200 p-3 rounded-lg"
+              >
+                <div className="flex items-center gap-2 text-xs">
+                  {allToolsCompleted ? (
+                    <>
+                      <span className="text-green-600 font-semibold text-base">?</span>
+                      <span className="text-gray-700">All tools completed</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="inline-block w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
+                      <span className="text-gray-700">Calling tools...</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          }
+          
+          // Collect result events separately to show only the latest one
+          const resultEvents = filteredEvents.filter(e => e.type === 'result');
+          const latestResult = resultEvents.length > 0 ? resultEvents[resultEvents.length - 1] : null;
+          const nonResultEvents = filteredEvents.filter(e => e.type !== 'result');
+          
+          // Add latest result event if exists
+          if (latestResult) {
+            const isSuccess = latestResult.subtype === 'success' || 
+                              (latestResult.payload.exitCode === 0) || 
+                              (latestResult.payload.is_error === false);
+            elements.push(
+              <div
+                key={latestResult.id}
+                className="text-gray-400 italic text-xs text-center py-1"
+              >
+                {isSuccess ? '? Completed' : '? Failed'}
+              </div>
+            );
+          }
+          
+          // Add filtered events (excluding result events, we already handled them)
+          nonResultEvents.forEach((chatEvent) => {
+            
+            // Regular chat messages
+            elements.push(
               <div
                 key={chatEvent.id}
                 className={`p-3 rounded-lg ${
@@ -255,25 +359,17 @@ function App() {
                     ? 'bg-blue-500 text-white ml-auto max-w-[80%]'
                     : chatEvent.type === 'assistant'
                     ? 'bg-white border border-gray-200 mr-auto max-w-[80%]'
-                    : chatEvent.type === 'tool_call'
-                    ? 'bg-yellow-50 border border-yellow-200 mr-auto max-w-[90%]'
                     : chatEvent.type === 'error'
                     ? 'bg-red-50 border border-red-200 mr-auto max-w-[90%]'
                     : chatEvent.type === 'thinking'
                     ? 'bg-gray-100 border border-gray-200 mr-auto max-w-[80%] text-sm opacity-70'
-                    : chatEvent.type === 'result'
-                    ? (chatEvent.subtype === 'success' || (chatEvent.payload.exitCode === 0) || (chatEvent.payload.is_error === false)
-                        ? 'bg-green-50 border border-green-200 mr-auto max-w-[90%]'
-                        : 'bg-red-50 border border-red-200 mr-auto max-w-[90%]')
                     : 'bg-gray-50 border border-gray-200 mr-auto max-w-[90%] text-sm'
                 }`}
               >
                 {chatEvent.type === 'user' && <div className="font-medium mb-1">User:</div>}
                 {chatEvent.type === 'assistant' && <div className="font-medium mb-1">Assistant:</div>}
-                {chatEvent.type === 'tool_call' && <div className="font-medium mb-1 text-xs">Tool:</div>}
                 {chatEvent.type === 'error' && <div className="font-medium mb-1 text-red-600">Error:</div>}
                 {chatEvent.type === 'thinking' && <div className="font-medium mb-1 text-gray-600">Thinking...</div>}
-                {chatEvent.type === 'result' && <div className="font-medium mb-1 text-sm">Result:</div>}
                 
                 <div className="whitespace-pre-wrap break-words">
                   {chatEvent.type === 'user' && chatEvent.payload.prompt}
@@ -294,33 +390,9 @@ function App() {
                       return null;
                     })()
                   )}
-                  {chatEvent.type === 'tool_call' && (
-                    chatEvent.subtype === 'started' ? (
-                      <div className="text-xs text-gray-600">Executing...</div>
-                    ) : chatEvent.subtype === 'completed' ? (
-                      <div className="text-xs text-green-600">? Completed</div>
-                    ) : (
-                      <div className="text-xs">Tool Call</div>
-                    )
-                  )}
                   {chatEvent.type === 'error' && chatEvent.payload.message}
                   {chatEvent.type === 'thinking' && ''}
-                  {chatEvent.type === 'result' && (
-                    <div className="flex items-center gap-2">
-                      {chatEvent.subtype === 'success' || (chatEvent.payload.exitCode === 0) || (chatEvent.payload.is_error === false) ? (
-                        <>
-                          <span className="text-green-600 font-semibold text-base">?</span>
-                          <span className="text-green-700">Success</span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-red-600 font-semibold text-base">?</span>
-                          <span className="text-red-700">Failed</span>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  {!['user', 'assistant', 'tool_call', 'error', 'thinking', 'result'].includes(chatEvent.type) && (
+                  {!['user', 'assistant', 'error', 'thinking', 'result'].includes(chatEvent.type) && (
                     <pre className="text-xs overflow-x-auto">
                       {JSON.stringify(chatEvent.payload, null, 2)}
                     </pre>
@@ -335,31 +407,34 @@ function App() {
               </div>
             );
           });
+          
+          return elements;
         })()}
         <div ref={messagesEndRef} />
       </div>
 
           {/* Input Area */}
           <div className="bg-white border-t border-gray-200 px-4 py-3">
-            <div className="flex gap-2">
-              <input
-                type="text"
+            <div className="flex gap-2 items-end">
+              <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyPress={(e) => {
+                onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     handleSend();
                   }
                 }}
-                placeholder="Enter command..."
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter command... (Shift+Enter for new line)"
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none min-h-[40px] max-h-[200px] overflow-y-auto"
+                rows={1}
                 disabled={!connected || !currentChatId}
               />
               <button
                 onClick={handleSend}
                 disabled={!input || input.trim().length === 0 || !connected || !currentChatId}
-                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed h-[40px]"
               >
                 Send
               </button>
