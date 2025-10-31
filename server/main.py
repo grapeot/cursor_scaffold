@@ -134,7 +134,7 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
         stderr_buffer = ''
         line_count = 0
         
-        # 创建任务来处理 stdout 和 stderr
+        # Create tasks to handle stdout and stderr
         async def handle_stdout():
             nonlocal stdout_buffer, line_count
             while True:

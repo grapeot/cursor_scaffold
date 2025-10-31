@@ -78,7 +78,7 @@ export const useAppStore = create<AppState>()(
           const isEnvLocalhost = envApiUrl && (envApiUrl.includes('localhost') || envApiUrl.includes('127.0.0.1'));
           console.log('[createChat] env.VITE_API_URL:', envApiUrl, 'isEnvLocalhost:', isEnvLocalhost);
           
-          // 如果环境变量设置了 localhost，但当前访问不是 localhost，则忽略环境变量，使用自动检测
+          // If environment variable is set to localhost but current access is not localhost, ignore env var and use auto-detection
           if (envApiUrl && (!isEnvLocalhost || (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')))) {
             apiBase = envApiUrl;
             console.log('[createChat] Using env API URL:', apiBase);
