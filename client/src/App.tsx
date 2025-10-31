@@ -292,6 +292,11 @@ function App() {
             filteredEvents.push(event);
           });
           
+          // Collect result events separately to show only the latest one
+          const resultEvents = filteredEvents.filter(e => e.type === 'result');
+          const latestResult = resultEvents.length > 0 ? resultEvents[resultEvents.length - 1] : null;
+          const nonResultEvents = filteredEvents.filter(e => e.type !== 'result');
+          
           // Calculate tool call status: count total started and completed
           const toolCalls = Array.from(toolCallMap.entries()).map(([id, tool]) => ({
             id,
@@ -301,12 +306,18 @@ function App() {
           const completedToolCalls = toolCalls.filter(tool => tool.completed).length;
           const hasActiveToolCalls = totalToolCalls > 0 && completedToolCalls < totalToolCalls;
           const allToolCallsFinished = totalToolCalls > 0 && completedToolCalls === totalToolCalls;
-          const shouldShowToolCallStatus = hasActiveToolCalls || allToolCallsFinished;
           
-          // Collect result events separately to show only the latest one
-          const resultEvents = filteredEvents.filter(e => e.type === 'result');
-          const latestResult = resultEvents.length > 0 ? resultEvents[resultEvents.length - 1] : null;
-          const nonResultEvents = filteredEvents.filter(e => e.type !== 'result');
+          // Find the latest tool call event to check if it's still the most recent
+          const toolCallEvents = currentEvents.filter(e => e.type === 'tool_call');
+          const latestToolCallEvent = toolCallEvents.length > 0 ? toolCallEvents[toolCallEvents.length - 1] : null;
+          const latestNonToolCallEvent = nonResultEvents.length > 0 ? nonResultEvents[nonResultEvents.length - 1] : null;
+          
+          // Show tool call status only if:
+          // 1. There are active tool calls (in progress), OR
+          // 2. All are finished AND it's still the latest event (no new messages after completion)
+          const shouldShowToolCallStatus = hasActiveToolCalls || 
+            (allToolCallsFinished && latestToolCallEvent && 
+             (!latestNonToolCallEvent || latestToolCallEvent.timestamp > latestNonToolCallEvent.timestamp));
           
           // Check for the latest thinking event - only show if it's the most recent event
           // (transient: disappears when next message arrives)
