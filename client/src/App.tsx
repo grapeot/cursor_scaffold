@@ -144,28 +144,36 @@ function App() {
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {currentEvents
-          .filter((event) => {
-            // 过滤掉不需要显示的事件类型
+        {(() => {
+          // 处理事件，过滤和合并
+          const filteredEvents: ChatEvent[] = [];
+          let lastThinkingIndex = -1;
+          
+          currentEvents.forEach((event, index) => {
+            // 过滤掉不需要显示的事件
             if (event.type === 'thinking' && event.subtype === 'delta') {
-              return false; // 不显示思考中的 delta 事件
+              return; // 跳过思考 delta 事件
             }
             if (event.type === 'system' && event.subtype === 'init') {
-              return false; // 不显示系统初始化事件
-            }
-            return true;
-          })
-          .map((event, index, array) => {
-            // 合并连续的思考事件
-            if (event.type === 'thinking') {
-              const nextNonThinking = array.findIndex((e, i) => i > index && e.type !== 'thinking');
-              const isLastThinking = nextNonThinking === -1 || array[nextNonThinking - 1].type === 'thinking';
-              
-              if (!isLastThinking) {
-                return null; // 跳过中间的思考事件，只显示最后一个
-              }
+              return; // 跳过系统初始化
             }
             
+            // 处理思考事件：合并连续的思考事件，只显示最后一个
+            if (event.type === 'thinking') {
+              lastThinkingIndex = filteredEvents.length;
+              // 检查下一个事件是否还是思考
+              const nextEvent = currentEvents[index + 1];
+              if (!nextEvent || nextEvent.type !== 'thinking' || nextEvent.subtype !== 'delta') {
+                // 这是最后一个思考事件，添加它
+                filteredEvents.push(event);
+              }
+            } else {
+              // 非思考事件，直接添加
+              filteredEvents.push(event);
+            }
+          });
+          
+          return filteredEvents.map((event) => {
             return (
               <div
                 key={event.id}
@@ -185,7 +193,7 @@ function App() {
               >
                 {event.type === 'user' && <div className="font-medium mb-1">用户:</div>}
                 {event.type === 'assistant' && <div className="font-medium mb-1">助手:</div>}
-                {event.type === 'tool_call' && <div className="font-medium mb-1">工具调用:</div>}
+                {event.type === 'tool_call' && <div className="font-medium mb-1 text-xs">工具:</div>}
                 {event.type === 'error' && <div className="font-medium mb-1 text-red-600">错误:</div>}
                 {event.type === 'thinking' && <div className="font-medium mb-1 text-gray-600">思考中...</div>}
                 
@@ -208,11 +216,14 @@ function App() {
                       return null;
                     })()
                   )}
-                  {event.type === 'tool_call' && event.subtype === 'started' && (
-                    <div className="text-xs">执行中...</div>
-                  )}
-                  {event.type === 'tool_call' && event.subtype === 'completed' && (
-                    <div className="text-xs text-green-600">✓ 完成</div>
+                  {event.type === 'tool_call' && (
+                    event.subtype === 'started' ? (
+                      <div className="text-xs text-gray-600">执行中...</div>
+                    ) : event.subtype === 'completed' ? (
+                      <div className="text-xs text-green-600">✓ 完成</div>
+                    ) : (
+                      <div className="text-xs">工具调用</div>
+                    )
                   )}
                   {event.type === 'error' && event.payload.message}
                   {event.type === 'thinking' && ''}
@@ -230,8 +241,8 @@ function App() {
                 )}
               </div>
             );
-          })
-          .filter(Boolean)}
+          });
+        })()}
         <div ref={messagesEndRef} />
       </div>
 
