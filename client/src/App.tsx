@@ -234,7 +234,10 @@ function App() {
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {(() => {
           // Process events, filter and merge
-          const filteredEvents: (ChatEvent | { type: 'tool_call_group', toolCalls: ChatEvent[], id: string, timestamp: number })[] = [];
+          type ToolCallGroup = { type: 'tool_call_group'; toolCalls: ChatEvent[]; id: string; timestamp: number };
+          type DisplayEvent = ChatEvent | ToolCallGroup;
+          
+          const filteredEvents: DisplayEvent[] = [];
           let currentToolGroup: ChatEvent[] | null = null;
           
           currentEvents.forEach((event, index) => {
@@ -260,11 +263,12 @@ function App() {
                   (prevEvent && prevEvent.type === 'tool_call' && prevEvent.subtype === 'completed')) {
                 // If there was a previous group, add it before starting new one
                 if (currentToolGroup && currentToolGroup.length > 0) {
+                  const firstEvent = currentToolGroup[0];
                   filteredEvents.push({
                     type: 'tool_call_group',
                     toolCalls: currentToolGroup,
-                    id: `tool-group-${currentToolGroup[0].id}`,
-                    timestamp: currentToolGroup[0].timestamp
+                    id: `tool-group-${firstEvent.id}`,
+                    timestamp: firstEvent.timestamp
                   });
                 }
                 currentToolGroup = [];
@@ -275,11 +279,12 @@ function App() {
               // If next event is not tool_call, close the group
               if (!nextEvent || nextEvent.type !== 'tool_call') {
                 if (currentToolGroup.length > 0) {
+                  const firstEvent = currentToolGroup[0];
                   filteredEvents.push({
                     type: 'tool_call_group',
                     toolCalls: currentToolGroup,
-                    id: `tool-group-${currentToolGroup[0].id}`,
-                    timestamp: currentToolGroup[0].timestamp
+                    id: `tool-group-${firstEvent.id}`,
+                    timestamp: firstEvent.timestamp
                   });
                 }
                 currentToolGroup = null;
@@ -288,11 +293,12 @@ function App() {
             } else {
               // Close any open tool group before adding other events
               if (currentToolGroup && currentToolGroup.length > 0) {
+                const firstEvent = currentToolGroup[0];
                 filteredEvents.push({
                   type: 'tool_call_group',
                   toolCalls: currentToolGroup,
-                  id: `tool-group-${currentToolGroup[0].id}`,
-                  timestamp: currentToolGroup[0].timestamp
+                  id: `tool-group-${firstEvent.id}`,
+                  timestamp: firstEvent.timestamp
                 });
                 currentToolGroup = null;
               }
@@ -312,23 +318,24 @@ function App() {
           });
           
           // Close any remaining tool group
-          if (currentToolGroup && currentToolGroup.length > 0) {
+          if (currentToolGroup !== null && currentToolGroup.length > 0) {
+            const firstEvent = currentToolGroup[0];
             filteredEvents.push({
               type: 'tool_call_group',
               toolCalls: currentToolGroup,
-              id: `tool-group-${currentToolGroup[0].id}`,
-              timestamp: currentToolGroup[0].timestamp
+              id: `tool-group-${firstEvent.id}`,
+              timestamp: firstEvent.timestamp
             });
           }
           
           return filteredEvents.map((event) => {
             // Handle tool_call_group
-            if (event.type === 'tool_call_group') {
+            if ('toolCalls' in event) {
               const toolCalls = event.toolCalls;
               // Group tool calls by their unique identifier
               const toolMap = new Map<string, { started?: ChatEvent; completed?: ChatEvent; name?: string }>();
               
-              toolCalls.forEach(toolCall => {
+              toolCalls.forEach((toolCall: ChatEvent) => {
                 // Extract tool identifier from payload
                 const toolId = toolCall.payload?.toolCall?.id || 
                               toolCall.payload?.id || 
@@ -390,35 +397,36 @@ function App() {
               );
             }
             
-            // Regular event rendering
+            // Regular event rendering (type guard ensures it's ChatEvent)
+            const chatEvent = event as ChatEvent;
             return (
               <div
-                key={event.id}
+                key={chatEvent.id}
                 className={`p-3 rounded-lg ${
-                  event.type === 'user'
+                  chatEvent.type === 'user'
                     ? 'bg-blue-500 text-white ml-auto max-w-[80%]'
-                    : event.type === 'assistant'
+                    : chatEvent.type === 'assistant'
                     ? 'bg-white border border-gray-200 mr-auto max-w-[80%]'
-                    : event.type === 'tool_call'
+                    : chatEvent.type === 'tool_call'
                     ? 'bg-yellow-50 border border-yellow-200 mr-auto max-w-[90%]'
-                    : event.type === 'error'
+                    : chatEvent.type === 'error'
                     ? 'bg-red-50 border border-red-200 mr-auto max-w-[90%]'
-                    : event.type === 'thinking'
+                    : chatEvent.type === 'thinking'
                     ? 'bg-gray-100 border border-gray-200 mr-auto max-w-[80%] text-sm opacity-70'
                     : 'bg-gray-50 border border-gray-200 mr-auto max-w-[90%] text-sm'
                 }`}
               >
-                {event.type === 'user' && <div className="font-medium mb-1">User:</div>}
-                {event.type === 'assistant' && <div className="font-medium mb-1">Assistant:</div>}
-                {event.type === 'tool_call' && <div className="font-medium mb-1 text-xs">Tool:</div>}
-                {event.type === 'error' && <div className="font-medium mb-1 text-red-600">Error:</div>}
-                {event.type === 'thinking' && <div className="font-medium mb-1 text-gray-600">Thinking...</div>}
+                {chatEvent.type === 'user' && <div className="font-medium mb-1">User:</div>}
+                {chatEvent.type === 'assistant' && <div className="font-medium mb-1">Assistant:</div>}
+                {chatEvent.type === 'tool_call' && <div className="font-medium mb-1 text-xs">Tool:</div>}
+                {chatEvent.type === 'error' && <div className="font-medium mb-1 text-red-600">Error:</div>}
+                {chatEvent.type === 'thinking' && <div className="font-medium mb-1 text-gray-600">Thinking...</div>}
                 
                 <div className="whitespace-pre-wrap break-words">
-                  {event.type === 'user' && event.payload.prompt}
-                  {event.type === 'assistant' && (
+                  {chatEvent.type === 'user' && chatEvent.payload.prompt}
+                  {chatEvent.type === 'assistant' && (
                     (() => {
-                      const content = event.payload.message?.content || event.payload.content || event.payload.text;
+                      const content = chatEvent.payload.message?.content || chatEvent.payload.content || chatEvent.payload.text;
                       if (Array.isArray(content)) {
                         return content.map((item, i) => {
                           if (item.type === 'text') {
@@ -433,27 +441,27 @@ function App() {
                       return null;
                     })()
                   )}
-                  {event.type === 'tool_call' && (
-                    event.subtype === 'started' ? (
+                  {chatEvent.type === 'tool_call' && (
+                    chatEvent.subtype === 'started' ? (
                       <div className="text-xs text-gray-600">Executing...</div>
-                    ) : event.subtype === 'completed' ? (
+                    ) : chatEvent.subtype === 'completed' ? (
                       <div className="text-xs text-green-600">✓ Completed</div>
                     ) : (
                       <div className="text-xs">Tool Call</div>
                     )
                   )}
-                  {event.type === 'error' && event.payload.message}
-                  {event.type === 'thinking' && ''}
-                  {!['user', 'assistant', 'tool_call', 'error', 'thinking'].includes(event.type) && (
+                  {chatEvent.type === 'error' && chatEvent.payload.message}
+                  {chatEvent.type === 'thinking' && ''}
+                  {!['user', 'assistant', 'tool_call', 'error', 'thinking'].includes(chatEvent.type) && (
                     <pre className="text-xs overflow-x-auto">
-                      {JSON.stringify(event.payload, null, 2)}
+                      {JSON.stringify(chatEvent.payload, null, 2)}
                     </pre>
                   )}
                 </div>
                 
-                {event.type !== 'thinking' && (
+                {chatEvent.type !== 'thinking' && (
                   <div className="text-xs opacity-70 mt-1">
-                    {new Date(event.timestamp).toLocaleTimeString()}
+                    {new Date(chatEvent.timestamp).toLocaleTimeString()}
                   </div>
                 )}
               </div>
