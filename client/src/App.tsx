@@ -322,7 +322,7 @@ function App() {
             const firstEvent = currentToolGroup[0];
             filteredEvents.push({
               type: 'tool_call_group',
-              toolCalls: currentToolGroup,
+              toolCalls: [...currentToolGroup], // Copy array to avoid mutation
               id: `tool-group-${firstEvent.id}`,
               timestamp: firstEvent.timestamp
             });
