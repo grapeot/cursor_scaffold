@@ -11,7 +11,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Quer
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 from bs4 import BeautifulSoup
-import yfinance as yf
 
 # Configure logging
 logging.basicConfig(
@@ -263,59 +262,6 @@ async def get_yage_articles():
     logger.info("Fetching articles from yage.ai")
     articles = find_articles_from_yage()
     return {"articles": articles, "count": len(articles)}
-
-
-@app.get("/api/stock/amazon")
-async def get_amazon_stock():
-    """Fetch Amazon stock price data for today"""
-    try:
-        ticker = yf.Ticker("AMZN")
-        
-        # Get today's data with 1-minute intervals (if market is open)
-        # If market is closed, get the latest available data
-        today = datetime.now().date()
-        
-        # Try to get intraday data (1-minute intervals) for today
-        # If market is closed or data not available, fallback to daily data
-        try:
-            # Get intraday data for today
-            hist = ticker.history(period="1d", interval="1m")
-            if hist.empty:
-                # Fallback to daily data - get last 5 days
-                hist = ticker.history(period="5d", interval="1d")
-        except Exception:
-            # Fallback to daily data
-            hist = ticker.history(period="5d", interval="1d")
-        
-        if hist.empty:
-            raise HTTPException(status_code=404, detail="No stock data available")
-        
-        # Convert to list of dictionaries with timestamp and price
-        data = []
-        for timestamp, row in hist.iterrows():
-            data.append({
-                "time": timestamp.isoformat(),
-                "open": float(row["Open"]),
-                "high": float(row["High"]),
-                "low": float(row["Low"]),
-                "close": float(row["Close"]),
-                "volume": int(row["Volume"])
-            })
-        
-        # Get current info
-        info = ticker.info
-        current_price = info.get("currentPrice") or info.get("regularMarketPrice") or data[-1]["close"]
-        
-        return {
-            "symbol": "AMZN",
-            "name": info.get("longName", "Amazon.com Inc."),
-            "currentPrice": float(current_price),
-            "data": data,
-            "lastUpdate": datetime.now().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Error fetching Amazon stock data: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch stock data: {str(e)}")
 
 
 @app.get("/")
