@@ -234,7 +234,8 @@ function App() {
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {(() => {
           // Process events, filter and merge
-          const filteredEvents: ChatEvent[] = [];
+          const filteredEvents: (ChatEvent | { type: 'tool_call_group', toolCalls: ChatEvent[], id: string, timestamp: number })[] = [];
+          let currentToolGroup: ChatEvent[] | null = null;
           
           currentEvents.forEach((event, index) => {
             // Filter out events that don't need to be displayed
@@ -245,22 +246,151 @@ function App() {
               return; // Skip system initialization
             }
             
+            // Handle tool_call events: group consecutive tool calls
+            if (event.type === 'tool_call') {
+              const prevEvent = index > 0 ? currentEvents[index - 1] : null;
+              const nextEvent = index < currentEvents.length - 1 ? currentEvents[index + 1] : null;
+              
+              // Start a new group if:
+              // 1. No current group exists
+              // 2. Previous event is not a tool_call
+              // 3. Previous tool_call was completed (started a new batch)
+              if (!currentToolGroup || 
+                  (prevEvent && prevEvent.type !== 'tool_call') ||
+                  (prevEvent && prevEvent.type === 'tool_call' && prevEvent.subtype === 'completed')) {
+                // If there was a previous group, add it before starting new one
+                if (currentToolGroup && currentToolGroup.length > 0) {
+                  filteredEvents.push({
+                    type: 'tool_call_group',
+                    toolCalls: currentToolGroup,
+                    id: `tool-group-${currentToolGroup[0].id}`,
+                    timestamp: currentToolGroup[0].timestamp
+                  });
+                }
+                currentToolGroup = [];
+              }
+              
+              currentToolGroup.push(event);
+              
+              // If next event is not tool_call, close the group
+              if (!nextEvent || nextEvent.type !== 'tool_call') {
+                if (currentToolGroup.length > 0) {
+                  filteredEvents.push({
+                    type: 'tool_call_group',
+                    toolCalls: currentToolGroup,
+                    id: `tool-group-${currentToolGroup[0].id}`,
+                    timestamp: currentToolGroup[0].timestamp
+                  });
+                }
+                currentToolGroup = null;
+              }
+              return; // Don't add tool_call events individually
+            } else {
+              // Close any open tool group before adding other events
+              if (currentToolGroup && currentToolGroup.length > 0) {
+                filteredEvents.push({
+                  type: 'tool_call_group',
+                  toolCalls: currentToolGroup,
+                  id: `tool-group-${currentToolGroup[0].id}`,
+                  timestamp: currentToolGroup[0].timestamp
+                });
+                currentToolGroup = null;
+              }
+            }
+            
             // Handle thinking events: merge consecutive thinking events, only show the last one
             if (event.type === 'thinking') {
-              lastThinkingIndex = filteredEvents.length;
-              // Check if the next event is also thinking
-              const nextEvent = currentEvents[index + 1];
+              const nextEvent = index < currentEvents.length - 1 ? currentEvents[index + 1] : null;
               if (!nextEvent || nextEvent.type !== 'thinking' || nextEvent.subtype !== 'delta') {
                 // This is the last thinking event, add it
                 filteredEvents.push(event);
               }
-            } else {
-              // Non-thinking events, add directly
+            } else if (event.type !== 'tool_call') {
+              // Non-thinking, non-tool_call events, add directly
               filteredEvents.push(event);
             }
           });
           
+          // Close any remaining tool group
+          if (currentToolGroup && currentToolGroup.length > 0) {
+            filteredEvents.push({
+              type: 'tool_call_group',
+              toolCalls: currentToolGroup,
+              id: `tool-group-${currentToolGroup[0].id}`,
+              timestamp: currentToolGroup[0].timestamp
+            });
+          }
+          
           return filteredEvents.map((event) => {
+            // Handle tool_call_group
+            if (event.type === 'tool_call_group') {
+              const toolCalls = event.toolCalls;
+              // Group tool calls by their unique identifier
+              const toolMap = new Map<string, { started?: ChatEvent; completed?: ChatEvent; name?: string }>();
+              
+              toolCalls.forEach(toolCall => {
+                // Extract tool identifier from payload
+                const toolId = toolCall.payload?.toolCall?.id || 
+                              toolCall.payload?.id || 
+                              toolCall.payload?.toolCall?.shellToolCall?.args?.command ||
+                              toolCall.id;
+                
+                // Extract tool name
+                const toolName = toolCall.payload?.toolCall?.name ||
+                                toolCall.payload?.toolCall?.shellToolCall?.args?.command ||
+                                toolCall.payload?.name ||
+                                'Unknown Tool';
+                
+                if (!toolMap.has(toolId)) {
+                  toolMap.set(toolId, { name: toolName });
+                }
+                
+                const tool = toolMap.get(toolId)!;
+                if (toolCall.subtype === 'started') {
+                  tool.started = toolCall;
+                } else if (toolCall.subtype === 'completed') {
+                  tool.completed = toolCall;
+                }
+                if (!tool.name || tool.name === 'Unknown Tool') {
+                  tool.name = toolName;
+                }
+              });
+              
+              const tools = Array.from(toolMap.values());
+              
+              return (
+                <div
+                  key={event.id}
+                  className="bg-yellow-50 border border-yellow-200 mr-auto max-w-[90%] p-3 rounded-lg"
+                >
+                  <div className="font-medium mb-2 text-xs text-gray-700">Tools:</div>
+                  <div className="space-y-2">
+                    {tools.map((tool, idx) => {
+                      const isCompleted = !!tool.completed;
+                      const toolName = tool.name || `Tool ${idx + 1}`;
+                      
+                      return (
+                        <div key={idx} className="flex items-center gap-2 text-xs">
+                          {isCompleted ? (
+                            <span className="text-green-600 font-semibold text-base">✓</span>
+                          ) : (
+                            <span className="inline-block w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
+                          )}
+                          <span className={isCompleted ? 'text-green-700' : 'text-gray-700'}>
+                            {toolName}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="text-xs opacity-70 mt-2">
+                    {new Date(event.timestamp).toLocaleTimeString()}
+                  </div>
+                </div>
+              );
+            }
+            
+            // Regular event rendering
             return (
               <div
                 key={event.id}
