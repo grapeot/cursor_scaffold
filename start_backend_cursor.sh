@@ -5,73 +5,72 @@
 
 set -e
 
-# 获取脚本所在目录
+# Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SERVER_DIR="$SCRIPT_DIR/server"
 VENV_DIR="$SERVER_DIR/venv"
 
-# 检查是否在正确的目录
+# Check if in correct directory
 if [ ! -f "$SERVER_DIR/cursor_server.py" ]; then
-    echo "错误: 找不到 server/cursor_server.py 文件"
-    echo "请确保在项目根目录运行此脚本"
+    echo "Error: server/cursor_server.py not found"
+    echo "Please ensure you are running this script from the project root directory"
     exit 1
 fi
 
-# 检查 cursor 命令是否可用
+# Check if cursor command is available
 if ! command -v cursor &> /dev/null; then
-    echo "错误: 找不到 'cursor' 命令"
-    echo "请确保 Cursor CLI 已安装并在 PATH 中"
-    echo "你可以通过以下方式检查: which cursor"
+    echo "Error: 'cursor' command not found"
+    echo "Please ensure Cursor CLI is installed and in PATH"
+    echo "You can check with: which cursor"
     exit 1
 fi
 
-# 检查 uv 是否可用
+# Check if uv is available
 if ! command -v uv &> /dev/null; then
-    echo "错误: 找不到 'uv' 命令"
-    echo "请安装 uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    echo "Error: 'uv' command not found"
+    echo "Please install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
     exit 1
 fi
 
-# 进入 server 目录
+# Change to server directory
 cd "$SERVER_DIR"
 
-# 检查虚拟环境是否存在，如果不存在则创建
+# Check if virtual environment exists, create if not
 if [ ! -d "$VENV_DIR" ]; then
-    echo "检测到未创建虚拟环境，正在创建..."
+    echo "Virtual environment not found, creating..."
     uv venv
 fi
 
-# 激活虚拟环境
-echo "激活虚拟环境..."
+# Activate virtual environment
+echo "Activating virtual environment..."
 source "$VENV_DIR/bin/activate"
 
-# 检查依赖是否安装
+# Check if dependencies are installed
 if ! "$VENV_DIR/bin/python" -c "import fastapi" 2>/dev/null; then
-    echo "检测到未安装依赖，正在安装..."
+    echo "Dependencies not installed, installing..."
     "$VENV_DIR/bin/pip" install -r requirements.txt || uv pip install -r requirements.txt
 fi
 
-# 检查 .env 文件是否存在，如果不存在则从 .env.example 复制
+# Check if .env file exists, copy from .env.example if not
 if [ ! -f ".env" ]; then
     if [ -f ".env.example" ]; then
-        echo "检测到未配置 .env 文件，从 .env.example 复制..."
+        echo ".env file not found, copying from .env.example..."
         cp .env.example .env
     else
-        echo "警告: 未找到 .env 文件，使用默认配置"
+        echo "Warning: .env file not found, using default configuration"
     fi
 fi
 
-# 启动 Cursor Agent 服务器 (NO RELOAD - processes persist)
-echo "启动 Cursor Agent 服务器 (无自动重载)..."
-echo "后端将运行在:"
-echo "  - 本地访问: http://localhost:3002"
-echo "  - 网络访问: http://$(hostname -I 2>/dev/null | awk '{print $1}' || ipconfig getifaddr en0 2>/dev/null || echo 'YOUR_IP'):3002"
-echo "WebSocket 将运行在:"
-echo "  - 本地访问: ws://localhost:3002/ws"
-echo "  - 网络访问: ws://$(hostname -I 2>/dev/null | awk '{print $1}' || ipconfig getifaddr en0 2>/dev/null || echo 'YOUR_IP'):3002/ws"
+# Start Cursor Agent server (NO RELOAD - processes persist)
+echo "Starting Cursor Agent Server (NO AUTO-RELOAD)..."
+echo "Server will run on:"
+echo "  - Local access: http://localhost:3002"
+echo "  - Network access: http://$(hostname -I 2>/dev/null | awk '{print $1}' || ipconfig getifaddr en0 2>/dev/null || echo 'YOUR_IP'):3002"
+echo "WebSocket will run on:"
+echo "  - Local access: ws://localhost:3002/ws"
+echo "  - Network access: ws://$(hostname -I 2>/dev/null | awk '{print $1}' || ipconfig getifaddr en0 2>/dev/null || echo 'YOUR_IP'):3002/ws"
 echo ""
-echo "注意: 此服务器不启用自动重载，以保持 cursor agent 进程持续运行"
+echo "Note: This server does not use auto-reload to preserve cursor agent processes"
 echo ""
 
 uvicorn cursor_server:app --host 0.0.0.0 --port 3002
-

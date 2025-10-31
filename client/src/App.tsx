@@ -61,11 +61,12 @@ function App() {
     // Dynamically calculate WebSocket URL at runtime to ensure correct hostname
     // Use Cursor Agent server (port 3002) for WebSocket connections
     // Supports VITE_CURSOR_AGENT_API_URL environment variable
+    const hostname = window.location.hostname;
+    
     const getCursorAgentApiBase = () => {
       if (import.meta.env.VITE_CURSOR_AGENT_API_URL) {
         return import.meta.env.VITE_CURSOR_AGENT_API_URL;
       }
-      const hostname = window.location.hostname;
       return hostname === 'localhost' || hostname === '127.0.0.1' 
         ? 'http://localhost:3002' 
         : `http://${hostname}:3002`;
