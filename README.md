@@ -147,14 +147,18 @@ cp .env.example .env
 ./start_backend.sh
 ```
 
-后端默认运行在 `http://localhost:3001`
+后端默认运行在 `http://localhost:3001`（监听所有网络接口 `0.0.0.0`，可通过网络访问）
 
 **终端 2 - 启动前端**：
 ```bash
 ./start_frontend.sh
 ```
 
-前端默认运行在 `http://localhost:5173`（或 Vite 自动选择的端口）
+前端默认运行在：
+- **本地访问**: `http://localhost:5173`
+- **网络访问**: `http://<YOUR_IP>:5173`（可在启动脚本的输出中查看具体地址）
+- Vite 会自动监听所有网络接口（`0.0.0.0`），允许从其他设备访问
+- 如果端口被占用，Vite 会自动选择下一个可用端口
 
 ### 手动启动
 
