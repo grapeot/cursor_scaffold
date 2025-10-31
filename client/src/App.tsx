@@ -242,7 +242,7 @@ function App() {
           // Track tool calls in the background
           const toolCallMap = new Map<string, { started?: ChatEvent; completed?: ChatEvent }>();
           
-          currentEvents.forEach((event, index) => {
+          currentEvents.forEach((event) => {
             // Filter out events that don't need to be displayed
             if (event.type === 'thinking' && event.subtype === 'delta') {
               return; // Skip thinking delta events
@@ -283,22 +283,21 @@ function App() {
               return;
             }
             
-            // Handle thinking events: merge consecutive thinking events, only show the last one
+            // Skip thinking events - we'll handle them separately as transient
             if (event.type === 'thinking') {
-              const nextEvent = index < currentEvents.length - 1 ? currentEvents[index + 1] : null;
-              if (!nextEvent || nextEvent.type !== 'thinking' || nextEvent.subtype !== 'delta') {
-                // This is the last thinking event, add it
-                filteredEvents.push(event);
-              }
-            } else {
-              // All other events (except tool_call which is already filtered), add directly
-              filteredEvents.push(event);
+              return; // Don't add thinking events to filteredEvents
             }
+            
+            // All other events (except tool_call and thinking which are already filtered), add directly
+            filteredEvents.push(event);
           });
           
           // Calculate tool call status: count total started and completed
-          const toolCalls = Array.from(toolCallMap.values());
-          const totalToolCalls = toolCalls.filter(tool => tool.started).length;
+          const toolCalls = Array.from(toolCallMap.entries()).map(([id, tool]) => ({
+            id,
+            ...tool,
+          })).filter(tool => tool.started); // Only include tools that have started
+          const totalToolCalls = toolCalls.length;
           const completedToolCalls = toolCalls.filter(tool => tool.completed).length;
           const hasActiveToolCalls = totalToolCalls > 0 && completedToolCalls < totalToolCalls;
           const allToolCallsFinished = totalToolCalls > 0 && completedToolCalls === totalToolCalls;
@@ -308,6 +307,13 @@ function App() {
           const resultEvents = filteredEvents.filter(e => e.type === 'result');
           const latestResult = resultEvents.length > 0 ? resultEvents[resultEvents.length - 1] : null;
           const nonResultEvents = filteredEvents.filter(e => e.type !== 'result');
+          
+          // Check for the latest thinking event - only show if it's the most recent event
+          // (transient: disappears when next message arrives)
+          const thinkingEvents = currentEvents.filter(e => e.type === 'thinking' && e.subtype !== 'delta');
+          const latestThinking = thinkingEvents.length > 0 ? thinkingEvents[thinkingEvents.length - 1] : null;
+          const latestNonThinkingEvent = nonResultEvents.length > 0 ? nonResultEvents[nonResultEvents.length - 1] : null;
+          const shouldShowThinking = latestThinking && (!latestNonThinkingEvent || latestThinking.timestamp > latestNonThinkingEvent.timestamp);
           
           const elements: React.ReactNode[] = [];
           
@@ -325,15 +331,12 @@ function App() {
                     ? 'bg-white border border-gray-200 mr-auto max-w-[80%]'
                     : chatEvent.type === 'error'
                     ? 'bg-red-50 border border-red-200 mr-auto max-w-[90%]'
-                    : chatEvent.type === 'thinking'
-                    ? 'bg-gray-100 border border-gray-200 mr-auto max-w-[80%] text-sm opacity-70'
                     : 'bg-gray-50 border border-gray-200 mr-auto max-w-[90%] text-sm'
                 }`}
               >
                 {chatEvent.type === 'user' && <div className="font-medium mb-1">User:</div>}
                 {chatEvent.type === 'assistant' && <div className="font-medium mb-1">Assistant:</div>}
                 {chatEvent.type === 'error' && <div className="font-medium mb-1 text-red-600">Error:</div>}
-                {chatEvent.type === 'thinking' && <div className="font-medium mb-1 text-gray-600">Thinking...</div>}
                 
                 <div className="whitespace-pre-wrap break-words">
                   {chatEvent.type === 'user' && chatEvent.payload.prompt}
@@ -355,22 +358,31 @@ function App() {
                     })()
                   )}
                   {chatEvent.type === 'error' && chatEvent.payload.message}
-                  {chatEvent.type === 'thinking' && ''}
-                  {!['user', 'assistant', 'error', 'thinking', 'result'].includes(chatEvent.type) && (
+                  {!['user', 'assistant', 'error', 'result'].includes(chatEvent.type) && (
                     <pre className="text-xs overflow-x-auto">
                       {JSON.stringify(chatEvent.payload, null, 2)}
                     </pre>
                   )}
                 </div>
                 
-                {chatEvent.type !== 'thinking' && (
-                  <div className="text-xs opacity-70 mt-1">
-                    {new Date(chatEvent.timestamp).toLocaleTimeString()}
-                  </div>
-                )}
+                <div className="text-xs opacity-70 mt-1">
+                  {new Date(chatEvent.timestamp).toLocaleTimeString()}
+                </div>
               </div>
             );
           });
+          
+          // Add thinking indicator (transient) - shown only when it's the latest event
+          if (shouldShowThinking) {
+            elements.push(
+              <div
+                key="thinking-indicator"
+                className="text-gray-400 italic text-xs py-1 mr-auto"
+              >
+                thinking...
+              </div>
+            );
+          }
           
           // Add unified tool call status if there are any tool calls (after messages)
           if (shouldShowToolCallStatus) {
@@ -379,6 +391,7 @@ function App() {
                 key="tool-call-status"
                 total={totalToolCalls}
                 completed={completedToolCalls}
+                tools={toolCalls}
               />
             );
           }
