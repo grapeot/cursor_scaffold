@@ -72,17 +72,27 @@ export const useAppStore = create<AppState>()(
         try {
           // 在运行时动态计算 API 地址，确保使用正确的 hostname
           let apiBase: string;
-          if (import.meta.env.VITE_API_URL) {
-            apiBase = import.meta.env.VITE_API_URL;
+          
+          // 检查环境变量
+          const envApiUrl = import.meta.env.VITE_API_URL;
+          console.log('[createChat] env.VITE_API_URL:', envApiUrl);
+          
+          if (envApiUrl) {
+            apiBase = envApiUrl;
+            console.log('[createChat] Using env API URL:', apiBase);
           } else if (typeof window !== 'undefined') {
             const hostname = window.location.hostname;
-            apiBase = hostname === 'localhost' || hostname === '127.0.0.1' 
+            const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+            apiBase = isLocalhost 
               ? 'http://localhost:3001' 
               : `http://${hostname}:3001`;
+            console.log('[createChat] Computed API from hostname:', apiBase, 'isLocalhost:', isLocalhost, 'hostname:', hostname);
           } else {
             apiBase = 'http://localhost:3001';
+            console.log('[createChat] Using default API (no window):', apiBase);
           }
-          console.log('[createChat] Using API:', apiBase, 'hostname:', typeof window !== 'undefined' ? window.location.hostname : 'N/A');
+          
+          console.log('[createChat] Final API URL:', apiBase);
           
           const response = await fetch(`${apiBase}/api/chat/create`, {
             method: 'POST',
