@@ -16,13 +16,13 @@ interface AppState {
   switchChat: (chatId: string) => void;
 }
 
-// 自动检测 API 地址：优先使用环境变量，否则根据当前访问地址自动推断
-// 注意：这个函数必须在运行时调用，不能在模块加载时调用
+// Auto-detect API base URL: prioritize environment variable, otherwise infer from current access address
+// Note: This function must be called at runtime, not at module load time
 const getApiBase = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  // 必须在运行时获取，确保使用正确的 hostname
+  // Must get at runtime to ensure correct hostname
   if (typeof window === 'undefined') {
     return 'http://localhost:3001';
   }
@@ -70,10 +70,10 @@ export const useAppStore = create<AppState>()(
 
       createChat: async () => {
         try {
-          // 在运行时动态计算 API 地址，确保使用正确的 hostname
+          // Dynamically calculate API base URL at runtime to ensure correct hostname
           let apiBase: string;
           
-          // 检查环境变量（如果设置了 localhost，在非 localhost 访问时忽略它）
+          // Check environment variable (if set to localhost, ignore it when accessing from non-localhost)
           const envApiUrl = import.meta.env.VITE_API_URL;
           const isEnvLocalhost = envApiUrl && (envApiUrl.includes('localhost') || envApiUrl.includes('127.0.0.1'));
           console.log('[createChat] env.VITE_API_URL:', envApiUrl, 'isEnvLocalhost:', isEnvLocalhost);
@@ -129,13 +129,13 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'cursor-client-storage',
-      // 自定义序列化，处理 Map
+      // Custom serialization to handle Map
       storage: {
         getItem: (name) => {
           const str = localStorage.getItem(name);
           if (!str) return null;
           const parsed = JSON.parse(str);
-          // 将 events 数组转换回 Map
+          // Convert events array back to Map
           if (parsed.state?.events) {
             const eventsMap = new Map();
             parsed.state.events.forEach(([key, value]: [string, ChatEvent[]]) => {
@@ -146,7 +146,7 @@ export const useAppStore = create<AppState>()(
           return parsed;
         },
         setItem: (name, value) => {
-          // 将 Map 转换为数组以便序列化
+          // Convert Map to array for serialization
           const toStore = { ...value };
           if (toStore.state?.events instanceof Map) {
             toStore.state.events = Array.from(toStore.state.events.entries());

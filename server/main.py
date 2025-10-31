@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-# 配置日志
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] %(levelname)s: %(message)s',
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# 配置 CORS
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,13 +28,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# WebSocket 连接管理
+# WebSocket connection management
 ws_connections: dict[str, WebSocket] = {}
 
 
 @app.post("/api/chat/create")
 async def create_chat():
-    """创建新的 Cursor 会话"""
+    """Create a new Cursor session"""
     logger.info("Creating new chat session")
     try:
         result = subprocess.run(
@@ -58,19 +58,19 @@ async def create_chat():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket 端点，处理消息发送和流式响应"""
+    """WebSocket endpoint, handles message sending and streaming responses"""
     await websocket.accept()
     ws_id = f"{datetime.now().timestamp()}-{id(websocket)}"
     ws_connections[ws_id] = websocket
     
     logger.info(f"WebSocket connection opened: {ws_id}")
     
-    # 发送连接成功消息
+    # Send connection success message
     await websocket.send_json({"type": "connected", "wsId": ws_id})
     
     try:
         while True:
-            # 接收消息
+            # Receive message
             message_str = await websocket.receive_text()
             logger.info(f"WebSocket received message from {ws_id}: {message_str[:200]}")
             
@@ -89,8 +89,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     logger.info(f"  - Prompt has tabs: {'\\t' in prompt}")
                     logger.info(f"  - Prompt has newlines: {'\\n' in prompt}")
                     
-                    # 执行 cursor 命令
-                    # 使用 --force 参数来绕过沙箱限制，允许文件写入等操作
+                    # Execute cursor command
+                    # Use --force flag to bypass sandbox restrictions, allowing file writes and other operations
                     cmd = ['cursor', 'agent', '--print', '--output-format', 'stream-json', '--force', '--resume', chat_id, prompt]
                     
                     logger.info("Spawning cursor command:")
@@ -119,9 +119,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: str):
-    """处理 cursor 命令的执行和流式输出"""
+    """Process cursor command execution and stream output"""
     try:
-        # 使用 asyncio 创建子进程
+        # Create subprocess using asyncio
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -175,15 +175,15 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
                     "message": error_text
                 })
         
-        # 并发处理 stdout 和 stderr
+        # Concurrently process stdout and stderr
         stdout_task = asyncio.create_task(handle_stdout())
         stderr_task = asyncio.create_task(handle_stderr())
         
-        # 等待进程完成
+        # Wait for process to complete
         return_code = await process.wait()
-        signal = None  # asyncio subprocess 不提供 signal 信息
+        signal = None  # asyncio subprocess doesn't provide signal information
         
-        # 等待输出处理完成
+        # Wait for output processing to complete
         await stdout_task
         await stderr_task
         
@@ -212,7 +212,7 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
 
 @app.get("/")
 async def root():
-    """健康检查端点"""
+    """Health check endpoint"""
     return {"status": "ok", "service": "Cursor Client Backend"}
 
 

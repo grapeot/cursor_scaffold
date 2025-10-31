@@ -1,6 +1,567 @@
 # Cursor Client
 
+A mobile-friendly React application that provides a graphical interface for the Cursor Agent CLI.
+
+[中文版本](#中文版本)
+
+## Overview
+
+This project serves as a **scaffold for Cursor CLI** development, designed to solve the pain point of using Cursor on mobile devices. The core idea is to expose an interface that calls a sandbox-free Cursor in a trusted environment, allowing mobile device control. Additionally, React's natural strengths make it ideal for displaying and visualizing results.
+
+### Core Concept
+
+This React app acts as a scaffold:
+1. **Build the scaffold first** (this repository) - a foundation that provides a web interface for Cursor CLI
+2. **Use the scaffold for development** - develop frontend or backend projects using Cursor
+   - For backend development, intermediate results from subprocess calls can be exported to the Results tab, including visualizations
+3. **Remove the scaffold when done** - once development is complete, the scaffold can be easily removed
+
+### Pain Points Solved
+
+- **Mobile Cursor Usage**: Using Cursor on mobile devices is challenging. This solution exposes an API interface in a trusted environment to call Cursor without sandbox restrictions, enabling mobile control.
+- **Result Visualization**: React's component-based architecture is perfect for displaying results, intermediate outputs, and visualizations from development processes.
+- **Mobile Development Workflow**: Enables a complete mobile development workflow, from coding to viewing results, all from a mobile device.
+
+Perfect for scenarios where you need to develop from mobile devices, view intermediate results in real-time, and have a clean interface to interact with Cursor CLI.
+
+## Project Structure
+
+```
+cursor_client/
+├── client/              # React frontend application
+│   ├── src/             # Source code
+│   ├── .env.example     # Environment variables example file
+│   └── ...
+├── server/              # Python FastAPI backend service
+│   ├── main.py          # Main application file
+│   ├── requirements.txt # Python dependencies
+│   ├── .env.example     # Environment variables example file
+│   ├── venv/            # Python virtual environment (auto-created)
+│   └── ...
+├── start_frontend.sh    # Frontend startup script
+├── start_backend.sh     # Backend startup script
+├── design.md            # Product design document
+└── README.md            # This file
+```
+
+## Prerequisites
+
+- **Frontend**:
+  - Node.js (recommended v18+)
+  - npm or yarn
+- **Backend**:
+  - Python 3.10+
+  - uv (recommended for virtual environment management) or pip
+- **Cursor CLI**:
+  - Must be installed and accessible via `cursor` command
+  - Cursor account logged in and configured
+
+### Installing Cursor CLI
+
+Cursor CLI is required for this project to work. Install it using the official installer:
+
+```bash
+curl https://cursor.com/install -fsS | bash
+```
+
+Or visit [https://cursor.com/cli](https://cursor.com/cli) for detailed installation instructions and documentation.
+
+After installation, verify it's working:
+
+```bash
+cursor --version
+cursor agent create-chat
+```
+
+Make sure you're logged in to your Cursor account. If not, run:
+
+```bash
+cursor login
+```
+
+## Quick Start
+
+### Method 1: Using Startup Scripts (Recommended)
+
+The project provides convenient startup scripts that automatically install dependencies and configure environment variables:
+
+#### Start Backend Server
+
+```bash
+./start_backend.sh
+```
+
+Or:
+
+```bash
+bash start_backend.sh
+```
+
+The script will automatically:
+- Create Python virtual environment (using uv)
+- Install Python dependencies (FastAPI, uvicorn, etc.)
+- Configure environment variables (copy from `.env.example` to `.env`)
+- Check if Cursor CLI is available
+- Start FastAPI development server
+
+#### Start Frontend Development Server
+
+```bash
+./start_frontend.sh
+```
+
+Or:
+
+```bash
+bash start_frontend.sh
+```
+
+The script will automatically:
+- Check and install frontend dependencies
+- Configure environment variables (copy from `.env.example to `.env`)
+- Start development server
+
+### Method 2: Manual Installation
+
+#### 1. Install Dependencies
+
+**Frontend Dependencies**
+```bash
+cd client
+npm install
+```
+
+**Backend Dependencies**
+
+Using uv (recommended):
+```bash
+cd server
+uv venv
+source venv/bin/activate
+uv pip install -r requirements.txt
+```
+
+Or using pip:
+```bash
+cd server
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+#### 2. Configure Environment Variables
+
+**Environment Variable File Locations**:
+- Frontend environment variables: `client/.env`
+- Backend environment variables: `server/.env`
+
+> **Note**: `.env` files are automatically created from `.env.example`. If the file doesn't exist, the startup script will create it automatically. You can also create or modify it manually.
+
+**Frontend Environment Variables** (`client/.env`):
+
+```env
+# If not set, frontend will automatically infer from access address (use host IP for network access)
+# Only set these variables when custom configuration is needed:
+# VITE_API_URL=http://localhost:3001
+# VITE_WS_URL=ws://localhost:3001/ws
+```
+
+> **Auto Address Detection**: The frontend now supports automatic detection of API and WebSocket addresses. When accessing from network (non-localhost), it automatically uses the current hostname; when accessing from localhost, it uses localhost. No manual configuration needed.
+
+**Backend Environment Variables** (`server/.env`):
+
+```env
+PORT=3001
+NODE_ENV=development
+```
+
+If `.env` files don't exist, you can manually copy from `.env.example`:
+
+```bash
+# Frontend
+cd client
+cp .env.example .env
+
+# Backend
+cd server
+cp .env.example .env
+```
+
+## Local Development
+
+### Using Startup Scripts
+
+**Terminal 1 - Start Backend**:
+```bash
+./start_backend.sh
+```
+
+Backend runs on `http://localhost:3001` (listens on all network interfaces `0.0.0.0`, accessible from network)
+
+**Terminal 2 - Start Frontend**:
+```bash
+./start_frontend.sh
+```
+
+Frontend runs on:
+- **Local access**: `http://localhost:5200`
+- **Network access**: `http://<YOUR_IP>:5200` (check startup script output for specific address)
+- Vite automatically listens on all network interfaces (`0.0.0.0`), allowing access from other devices
+- If port is occupied, Vite will automatically select the next available port
+
+### Manual Startup
+
+**Start Backend Server**
+
+Run in `server/` directory:
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Start FastAPI development server
+uvicorn main:app --reload --host 0.0.0.0 --port 3001
+```
+
+Or use startup script:
+```bash
+./start_backend.sh
+```
+
+**Start Frontend Development Server**
+
+Run in `client/` directory:
+
+```bash
+npm run dev
+```
+
+### Access Application
+
+Open browser and access frontend address:
+- **Local access**: `http://localhost:5200`
+- **Network access**: `http://<YOUR_IP>:5200` (startup script will display specific address)
+- Frontend automatically detects access address and connects to correct backend API and WebSocket service
+
+## Testing
+
+### Functional Testing
+
+1. **Session Creation Test**
+   - Open application, should automatically create a new session
+   - Check if session ID is displayed at the top
+
+2. **Message Sending Test**
+   - Enter a message in the input box (e.g., "Say hello")
+   - Click send button
+   - Should see message displayed on interface and receive Cursor's response
+
+3. **Session Switch Test**
+   - Click "New Session" button
+   - Should create new session and switch context
+   - New session messages should not include old session history
+
+4. **WebSocket Connection Test**
+   - Check top connection status shows "Connected"
+   - If shows "Disconnected", check if backend is running properly
+
+### End-to-End Test Flow
+
+Using startup scripts (recommended):
+
+```bash
+# Terminal 1: Start backend
+./start_backend.sh
+
+# Terminal 2: Start frontend
+./start_frontend.sh
+
+# Browser: Access http://localhost:5200
+# 1. Verify automatic session creation
+# 2. Send test message: "Say hello"
+# 3. Verify response received
+# 4. Create new session
+# 5. Verify session switch successful
+```
+
+Or manual startup:
+
+```bash
+# Terminal 1: Start backend
+cd server
+source venv/bin/activate
+uvicorn main:app --reload --host 0.0.0.0 --port 3001
+
+# Terminal 2: Start frontend
+cd client
+npm run dev
+
+# Browser: Access http://localhost:5200
+```
+
+### Command Line Testing
+
+You can also test backend API directly:
+
+```bash
+# Create new session
+curl -X POST http://localhost:3001/api/chat/create
+
+# Should return something like: {"chatId":"7129401f-5fa1-438f-a7ae-4206fe055b76"}
+```
+
+## Build Production Version
+
+### Build Frontend
+
+```bash
+cd client
+npm run build
+```
+
+Build output in `client/dist/` directory
+
+### Build Backend
+
+FastAPI backend doesn't require build step, just run Python code directly. For production, recommended:
+
+```bash
+cd server
+source venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 3001
+```
+
+Or use Gunicorn + Uvicorn workers (recommended for production):
+
+```bash
+pip install gunicorn
+gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:3001
+```
+
+## Deployment
+
+### Frontend Deployment
+
+Frontend can be deployed to any static file server:
+
+1. **Using Vite Preview** (local testing)
+   ```bash
+   cd client
+   npm run build
+   npm run preview
+   ```
+
+2. **Deploy to Vercel**
+   - Connect GitHub repository
+   - Set build directory to `client`
+   - Set build command to `cd client && npm install && npm run build`
+   - Set output directory to `client/dist`
+
+3. **Deploy to Netlify**
+   - Similar configuration as Vercel
+
+4. **Deploy to Traditional Server**
+   - Upload `client/dist/` directory contents to web server (Nginx, Apache, etc.)
+   - Configure server to support single-page application routing
+
+### Backend Deployment
+
+Backend needs to be deployed to a Python-capable server:
+
+1. **Using Gunicorn + Uvicorn** (recommended for production)
+   ```bash
+   cd server
+   source venv/bin/activate
+   pip install gunicorn
+   gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:3001
+   ```
+
+2. **Using systemd** (Linux)
+   - Create systemd service file
+   - Set working directory and execution command to `gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker`
+
+3. **Deploy to Cloud Platform**
+   - **Heroku**: Create `Procfile` with content `web: uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Railway**: Set startup command to `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Render**: Set build command to `pip install -r requirements.txt`, startup command to `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Fly.io**: Create `fly.toml` config, use `uvicorn main:app` to start
+
+### Environment Variable Configuration
+
+Production environment needs correct environment variables:
+
+**Frontend** (injected at build time):
+```env
+VITE_API_URL=https://your-backend-domain.com
+VITE_WS_URL=wss://your-backend-domain.com
+```
+
+**Backend**:
+```env
+PORT=3001
+```
+
+### Complete Deployment Example (Local Server)
+
+Assuming you deploy frontend to Nginx, backend to same server:
+
+1. **Build Frontend**
+   ```bash
+   cd client
+   npm run build
+   ```
+
+2. **Copy Frontend Files**
+   ```bash
+   sudo cp -r client/dist/* /var/www/html/
+   ```
+
+3. **Configure Nginx**
+   ```nginx
+   server {
+       listen 80;
+       server_name your-domain.com;
+       
+       root /var/www/html;
+       index index.html;
+       
+       location / {
+           try_files $uri $uri/ /index.html;
+       }
+       
+       location /api {
+           proxy_pass http://localhost:3001;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection 'upgrade';
+           proxy_set_header Host $host;
+           proxy_cache_bypass $http_upgrade;
+       }
+       
+       location /ws {
+           proxy_pass http://localhost:3001;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection "upgrade";
+           proxy_set_header Host $host;
+       }
+   }
+   ```
+
+4. **Start Backend Service**
+   ```bash
+   cd server
+   npm run build
+   pm2 start dist/index.js --name cursor-server
+   ```
+
+5. **Configure SSL (Recommended)**
+   - Use Let's Encrypt to configure HTTPS
+   - Update frontend environment variables to `wss://` and `https://`
+
+## Troubleshooting
+
+### Backend Cannot Start
+
+- Check if Python version meets requirements (Python 3.10+): run `python3 --version`
+- Check if virtual environment is correctly created and activated
+- Check if dependencies are correctly installed: run `pip list | grep fastapi`
+- Check if `cursor` command is in PATH: run `which cursor`
+- Check if Cursor is logged in: run `cursor agent create-chat` to test
+- Check if `uv` is installed (if using startup script): run `which uv`
+
+### Frontend Cannot Connect to Backend
+
+- Check if backend is running
+- Check if environment variables `VITE_API_URL` and `VITE_WS_URL` are correct
+- Check browser console for network errors
+- If CORS issue, check backend CORS configuration
+
+### WebSocket Connection Failed
+
+- Check if backend WebSocket server is running properly
+- Check if firewall allows WebSocket connections
+- Check proxy server configuration (if using Nginx, etc.)
+
+### Session Creation Failed
+
+- Confirm Cursor CLI is correctly installed and configured
+- Check if `cursor agent create-chat` command can run directly
+- Check backend logs for detailed error information
+
+### File Editing Permission Issues
+
+If Cursor Agent encounters permission issues when editing files (tool calls rejected):
+
+- **Backend configured with `--force` parameter**: Code already includes `--force` flag to bypass sandbox restrictions
+- If still having issues, you can check:
+  - Is Cursor CLI version latest: run `cursor agent update`
+  - Workspace trust settings: check `security.workspace.trust.enabled` in Cursor settings
+  - Check backend logs for specific rejection reasons
+
+The `--force` parameter works as: "Force allow commands unless explicitly denied", allowing all commands and file write operations unless explicitly denied.
+
+## Network Access Configuration
+
+### Frontend Network Access
+
+- Frontend is configured to listen on `0.0.0.0`, accessible from other devices on the same network
+- When starting frontend, script will automatically detect and display network access address
+- API and WebSocket addresses will automatically adjust based on access method:
+  - **localhost access**: uses `localhost:3001`
+  - **Network access**: uses current host IP address (e.g., `192.168.1.100:3001`)
+
+### Backend Network Access
+
+- Backend is configured to listen on `0.0.0.0`, accessible from network
+- Ensure firewall allows access to port 3001
+
+### Access from Mobile Devices
+
+1. Ensure both frontend and backend are running properly
+2. Get server IP address (startup script will display)
+3. Access `http://<SERVER_IP>:5200` on mobile device in the same WiFi network
+4. Frontend will automatically connect to correct backend address
+
+## Development Notes
+
+- Frontend uses Zustand for state management, session data saved in localStorage
+- Backend starts new `cursor agent` process for each request, doesn't maintain long-running subprocess
+- Session state managed by Cursor internally, accessed via chatId
+- Frontend event history saved locally, won't be lost on page refresh
+- Frontend supports automatic API address detection, works in network environment without manual configuration
+
+## License
+
+ISC
+
+---
+
+## 中文版本 {#中文版本}
+
+# Cursor Client
+
 一个支持移动端友好的 React 应用，实现对 Cursor Agent CLI 的图形化封装。
+
+## 项目概述
+
+本项目作为 **Cursor 的脚手架**，旨在解决在手机上使用 Cursor 的不便。核心思路是暴露一个接口，在可信任的环境下调用无沙箱限制的 Cursor，从而实现移动设备控制。此外，React 天然的组件化特性非常适合展示和可视化结果。
+
+### 核心概念
+
+这个 React 应用作为一个脚手架：
+1. **先搭建脚手架**（本仓库）- 提供一个为 Cursor CLI 提供 Web 接口的基础框架
+2. **利用脚手架进行开发** - 使用 Cursor 开发前端或后端项目
+   - 对于后端开发，可以通过 subprocess 等方式将中间结果导出到 Results 标签页，包括可视化内容
+3. **开发完成后删除脚手架** - 开发完成后可以轻松移除脚手架
+
+### 解决的痛点
+
+- **移动端 Cursor 使用**：在手机上使用 Cursor 比较麻烦。此方案通过在可信任环境下暴露 API 接口来调用无沙箱限制的 Cursor，实现移动端控制。
+- **结果可视化**：React 的组件化架构非常适合展示结果、中间输出以及开发过程中的可视化内容。
+- **移动端开发工作流**：支持完整的移动端开发工作流，从编写代码到查看结果，全部都可以在移动设备上完成。
+
+非常适合需要在移动设备上开发、实时查看中间结果、并通过简洁界面与 Cursor CLI 交互的场景。
 
 ## 项目结构
 
@@ -30,9 +591,32 @@ cursor_client/
 - **后端**：
   - Python 3.10+
   - uv (推荐，用于管理虚拟环境) 或 pip
-- **其他**：
-  - Cursor CLI (已安装并可在命令行访问 `cursor` 命令)
+- **Cursor CLI**：
+  - 必须已安装并可在命令行访问 `cursor` 命令
   - Cursor 账户已登录并配置
+
+### 安装 Cursor CLI
+
+本项目需要 Cursor CLI 才能运行。使用官方安装程序安装：
+
+```bash
+curl https://cursor.com/install -fsS | bash
+```
+
+或访问 [https://cursor.com/cli](https://cursor.com/cli) 查看详细的安装说明和文档。
+
+安装完成后，验证是否正常工作：
+
+```bash
+cursor --version
+cursor agent create-chat
+```
+
+确保已登录 Cursor 账户。如果未登录，运行：
+
+```bash
+cursor login
+```
 
 ## 快速开始
 
@@ -118,7 +702,7 @@ pip install -r requirements.txt
 # 如果不设置，前端会自动根据访问地址推断（网络访问时使用主机 IP）
 # 仅在需要自定义时才设置以下变量：
 # VITE_API_URL=http://localhost:3001
-# VITE_WS_URL=ws://localhost:3001
+# VITE_WS_URL=ws://localhost:3001/ws
 ```
 
 > **自动地址检测**：前端现在支持自动检测 API 和 WebSocket 地址。如果从网络访问（非 localhost），会自动使用当前主机名；如果是 localhost 访问，则使用 localhost。无需手动配置。
@@ -194,8 +778,8 @@ npm run dev
 ### 访问应用
 
 打开浏览器访问前端地址：
-- **本地访问**: `http://localhost:5173`
-- **网络访问**: `http://<YOUR_IP>:5173`（启动脚本会显示具体地址）
+- **本地访问**: `http://localhost:5200`
+- **网络访问**: `http://<YOUR_IP>:5200`（启动脚本会显示具体地址）
 - 前端会自动检测访问地址，并连接到正确的后端 API 和 WebSocket 服务
 
 ## 测试
@@ -488,4 +1072,3 @@ PORT=3001
 ## 许可证
 
 ISC
-

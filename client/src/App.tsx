@@ -1,14 +1,15 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAppStore } from './store';
 import type { ChatEvent } from './types';
+import Result from './Result';
 
-// 自动检测 API 地址：优先使用环境变量，否则根据当前访问地址自动推断
-// 注意：这个函数必须在运行时调用，不能在模块加载时调用
+// Auto-detect API base URL: prioritize environment variable, otherwise infer from current access address
+// Note: This function must be called at runtime, not at module load time
 const getApiBase = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  // 必须在运行时获取，确保使用正确的 hostname
+  // Must get at runtime to ensure correct hostname
   if (typeof window === 'undefined') {
     return 'http://localhost:3001';
   }
@@ -18,26 +19,21 @@ const getApiBase = () => {
     : `http://${hostname}:3001`;
 };
 
-const getWsUrl = () => {
-  if (import.meta.env.VITE_WS_URL) {
-    return import.meta.env.VITE_WS_URL;
-  }
-  const apiBase = getApiBase();
-  // 将 http:// 转换为 ws://
-  const wsUrl = apiBase.replace(/^http/, 'ws') + '/ws';
-  console.log('[getWsUrl] API Base:', apiBase, '-> WS URL:', wsUrl);
-  return wsUrl;
-};
+// Note: getWsUrl is defined but not directly used in this module anymore
+// WebSocket URL is calculated directly in useEffect to ensure runtime hostname
+
+type Tab = 'chat' | 'result';
 
 function App() {
   const { currentChatId, events, addEvent, getEvents, createChat, setCurrentChatId } = useAppStore();
   const [input, setInput] = useState('');
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>('chat');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
-  // 初始化：创建会话或恢复现有会话
+  // Initialize: create session or restore existing session
   useEffect(() => {
     const init = async () => {
       if (!currentChatId) {
@@ -48,7 +44,7 @@ function App() {
           setCurrentChatId(chatId);
         } catch (error) {
           console.error('[init] Failed to create chat:', error);
-          // 如果创建失败，尝试重试（可能是网络问题）
+          // If creation fails, retry (may be network issue)
           console.log('[init] Will retry when WebSocket connects...');
         }
       }
@@ -56,7 +52,7 @@ function App() {
     init();
   }, []);
 
-  // 当 WebSocket 连接成功后，如果没有 chatId，尝试创建
+  // When WebSocket connects successfully, if no chatId exists, try to create one
   useEffect(() => {
     if (connected && !currentChatId) {
       console.log('[WebSocket connected] No chatId, attempting to create...');
@@ -71,10 +67,10 @@ function App() {
     }
   }, [connected, currentChatId]);
 
-  // WebSocket 连接
+  // WebSocket connection
   useEffect(() => {
-    // 在运行时动态计算 WebSocket URL，确保使用正确的 hostname
-    // 直接在这里计算，确保使用当前的 hostname
+    // Dynamically calculate WebSocket URL at runtime to ensure correct hostname
+    // Calculate directly here to ensure current hostname is used
     const hostname = window.location.hostname;
     const apiBase = hostname === 'localhost' || hostname === '127.0.0.1' 
       ? 'http://localhost:3001' 
@@ -137,7 +133,7 @@ function App() {
     };
   }, [currentChatId]);
 
-  // 自动滚动到底部
+  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [events, currentChatId]);
@@ -145,10 +141,10 @@ function App() {
   const handleSend = () => {
     if (!input || !currentChatId || !ws || !connected) return;
 
-    const prompt = input; // 保留原始输入，包括 tab 和换行
+    const prompt = input; // Preserve original input, including tabs and newlines
     setInput('');
 
-    // 添加用户消息事件
+    // Add user message event
     const userEvent: ChatEvent = {
       id: `${Date.now()}-${Math.random()}`,
       chatId: currentChatId,
@@ -159,7 +155,7 @@ function App() {
     };
     addEvent(currentChatId, userEvent);
 
-    // 通过 WebSocket 发送消息
+    // Send message via WebSocket
     ws.send(JSON.stringify({
       type: 'send',
       chatId: currentChatId,
@@ -182,50 +178,84 @@ function App() {
           <h1 className="text-xl font-semibold">Cursor Client</h1>
           <div className="flex items-center gap-2">
             <span className={`text-xs px-2 py-1 rounded ${connected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-              {connected ? '已连接' : '未连接'}
+              {connected ? 'Connected' : 'Disconnected'}
             </span>
-            <button
-              onClick={handleNewChat}
-              className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
-            >
-              新建会话
-            </button>
+            {activeTab === 'chat' && (
+              <button
+                onClick={handleNewChat}
+                className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
+              >
+                New Session
+              </button>
+            )}
           </div>
         </div>
-        {currentChatId && (
+        {activeTab === 'chat' && currentChatId && (
           <div className="mt-2 text-xs text-gray-500">
             Session ID: <code className="bg-gray-100 px-1 rounded">{currentChatId}</code>
           </div>
         )}
       </header>
 
-      {/* Messages Area */}
+      {/* Tabs */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="flex">
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`px-6 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'chat'
+                ? 'text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            >
+            Chat
+          </button>
+          <button
+            onClick={() => setActiveTab('result')}
+            className={`px-6 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'result'
+                ? 'text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Result
+          </button>
+        </div>
+      </div>
+
+      {/* Content Area */}
+      {activeTab === 'result' ? (
+        <div className="flex-1 overflow-y-auto">
+          <Result />
+        </div>
+      ) : (
+        <>
+          {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {(() => {
-          // 处理事件，过滤和合并
+          // Process events, filter and merge
           const filteredEvents: ChatEvent[] = [];
-          let lastThinkingIndex = -1;
           
           currentEvents.forEach((event, index) => {
-            // 过滤掉不需要显示的事件
+            // Filter out events that don't need to be displayed
             if (event.type === 'thinking' && event.subtype === 'delta') {
-              return; // 跳过思考 delta 事件
+              return; // Skip thinking delta events
             }
             if (event.type === 'system' && event.subtype === 'init') {
-              return; // 跳过系统初始化
+              return; // Skip system initialization
             }
             
-            // 处理思考事件：合并连续的思考事件，只显示最后一个
+            // Handle thinking events: merge consecutive thinking events, only show the last one
             if (event.type === 'thinking') {
               lastThinkingIndex = filteredEvents.length;
-              // 检查下一个事件是否还是思考
+              // Check if the next event is also thinking
               const nextEvent = currentEvents[index + 1];
               if (!nextEvent || nextEvent.type !== 'thinking' || nextEvent.subtype !== 'delta') {
-                // 这是最后一个思考事件，添加它
+                // This is the last thinking event, add it
                 filteredEvents.push(event);
               }
             } else {
-              // 非思考事件，直接添加
+              // Non-thinking events, add directly
               filteredEvents.push(event);
             }
           });
@@ -248,11 +278,11 @@ function App() {
                     : 'bg-gray-50 border border-gray-200 mr-auto max-w-[90%] text-sm'
                 }`}
               >
-                {event.type === 'user' && <div className="font-medium mb-1">用户:</div>}
-                {event.type === 'assistant' && <div className="font-medium mb-1">助手:</div>}
-                {event.type === 'tool_call' && <div className="font-medium mb-1 text-xs">工具:</div>}
-                {event.type === 'error' && <div className="font-medium mb-1 text-red-600">错误:</div>}
-                {event.type === 'thinking' && <div className="font-medium mb-1 text-gray-600">思考中...</div>}
+                {event.type === 'user' && <div className="font-medium mb-1">User:</div>}
+                {event.type === 'assistant' && <div className="font-medium mb-1">Assistant:</div>}
+                {event.type === 'tool_call' && <div className="font-medium mb-1 text-xs">Tool:</div>}
+                {event.type === 'error' && <div className="font-medium mb-1 text-red-600">Error:</div>}
+                {event.type === 'thinking' && <div className="font-medium mb-1 text-gray-600">Thinking...</div>}
                 
                 <div className="whitespace-pre-wrap break-words">
                   {event.type === 'user' && event.payload.prompt}
@@ -275,11 +305,11 @@ function App() {
                   )}
                   {event.type === 'tool_call' && (
                     event.subtype === 'started' ? (
-                      <div className="text-xs text-gray-600">执行中...</div>
+                      <div className="text-xs text-gray-600">Executing...</div>
                     ) : event.subtype === 'completed' ? (
-                      <div className="text-xs text-green-600">✓ 完成</div>
+                      <div className="text-xs text-green-600">✓ Completed</div>
                     ) : (
-                      <div className="text-xs">工具调用</div>
+                      <div className="text-xs">Tool Call</div>
                     )
                   )}
                   {event.type === 'error' && event.payload.message}
@@ -303,32 +333,34 @@ function App() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
-      <div className="bg-white border-t border-gray-200 px-4 py-3">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder="输入指令..."
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={!connected || !currentChatId}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input || input.trim().length === 0 || !connected || !currentChatId}
-            className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
-          >
-            发送
-          </button>
-        </div>
-      </div>
+          {/* Input Area */}
+          <div className="bg-white border-t border-gray-200 px-4 py-3">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="Enter command..."
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={!connected || !currentChatId}
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input || input.trim().length === 0 || !connected || !currentChatId}
+                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
