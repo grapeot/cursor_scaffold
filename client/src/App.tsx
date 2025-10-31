@@ -3,24 +3,7 @@ import { useAppStore } from './store';
 import type { ChatEvent } from './types';
 import Result from './Result';
 
-// Auto-detect API base URL: prioritize environment variable, otherwise infer from current access address
-// Note: This function must be called at runtime, not at module load time
-const getApiBase = () => {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  // Must get at runtime to ensure correct hostname
-  if (typeof window === 'undefined') {
-    return 'http://localhost:3001';
-  }
-  const hostname = window.location.hostname;
-  return hostname === 'localhost' || hostname === '127.0.0.1' 
-    ? 'http://localhost:3001' 
-    : `http://${hostname}:3001`;
-};
-
-// Note: getWsUrl is defined but not directly used in this module anymore
-// WebSocket URL is calculated directly in useEffect to ensure runtime hostname
+// Note: API and WebSocket URLs are calculated directly in useEffect to ensure runtime hostname
 
 type Tab = 'chat' | 'result';
 
@@ -254,13 +237,15 @@ function App() {
               const prevEvent = index > 0 ? currentEvents[index - 1] : null;
               const nextEvent = index < currentEvents.length - 1 ? currentEvents[index + 1] : null;
               
-              // Start a new group if:
-              // 1. No current group exists
-              // 2. Previous event is not a tool_call
-              // 3. Previous tool_call was completed (started a new batch)
-              if (!currentToolGroup || 
-                  (prevEvent && prevEvent.type !== 'tool_call') ||
-                  (prevEvent && prevEvent.type === 'tool_call' && prevEvent.subtype === 'completed')) {
+              // Start a new group only if:
+              // 1. No current group exists, OR
+              // 2. Previous event is not a tool_call (meaning we had a break in tool calls)
+              // Note: We DON'T start a new group when previous tool_call was completed,
+              // because completed events are part of the same batch as started events
+              const shouldStartNewGroup = !currentToolGroup || 
+                  (prevEvent && prevEvent.type !== 'tool_call');
+              
+              if (shouldStartNewGroup) {
                 // If there was a previous group, add it before starting new one
                 if (currentToolGroup && currentToolGroup.length > 0) {
                   const firstEvent = currentToolGroup[0];
@@ -274,15 +259,15 @@ function App() {
                 currentToolGroup = [];
               }
               
-              currentToolGroup.push(event);
+              currentToolGroup!.push(event);
               
               // If next event is not tool_call, close the group
               if (!nextEvent || nextEvent.type !== 'tool_call') {
-                if (currentToolGroup.length > 0) {
-                  const firstEvent = currentToolGroup[0];
+                if (currentToolGroup!.length > 0) {
+                  const firstEvent = currentToolGroup![0];
                   filteredEvents.push({
                     type: 'tool_call_group',
-                    toolCalls: currentToolGroup,
+                    toolCalls: [...currentToolGroup!],
                     id: `tool-group-${firstEvent.id}`,
                     timestamp: firstEvent.timestamp
                   });
@@ -296,7 +281,7 @@ function App() {
                 const firstEvent = currentToolGroup[0];
                 filteredEvents.push({
                   type: 'tool_call_group',
-                  toolCalls: currentToolGroup,
+                  toolCalls: [...currentToolGroup],
                   id: `tool-group-${firstEvent.id}`,
                   timestamp: firstEvent.timestamp
                 });
@@ -318,15 +303,17 @@ function App() {
           });
           
           // Close any remaining tool group
-          const remainingGroup: ChatEvent[] | null = currentToolGroup;
-          if (remainingGroup !== null && remainingGroup.length > 0) {
-            const firstEvent = remainingGroup[0];
-            filteredEvents.push({
-              type: 'tool_call_group',
-              toolCalls: [...remainingGroup],
-              id: `tool-group-${firstEvent.id}`,
-              timestamp: firstEvent.timestamp
-            });
+          if (currentToolGroup !== null) {
+            const toolGroup: ChatEvent[] = currentToolGroup;
+            if (toolGroup.length > 0) {
+              const firstEvent = toolGroup[0];
+              filteredEvents.push({
+                type: 'tool_call_group',
+                toolCalls: [...toolGroup],
+                id: `tool-group-${firstEvent.id}`,
+                timestamp: firstEvent.timestamp
+              });
+            }
           }
           
           return filteredEvents.map((event) => {
@@ -334,37 +321,64 @@ function App() {
             if ('toolCalls' in event) {
               const toolCalls = event.toolCalls;
               // Group tool calls by their unique identifier
-              const toolMap = new Map<string, { started?: ChatEvent; completed?: ChatEvent; name?: string }>();
+              // Use a more robust ID extraction that handles different payload structures
+              const toolMap = new Map<string, { started?: ChatEvent; completed?: ChatEvent; name?: string; lastUpdate?: number }>();
               
               toolCalls.forEach((toolCall: ChatEvent) => {
-                // Extract tool identifier from payload
-                const toolId = toolCall.payload?.toolCall?.id || 
-                              toolCall.payload?.id || 
-                              toolCall.payload?.toolCall?.shellToolCall?.args?.command ||
-                              toolCall.id;
+                // Extract tool identifier from payload - try multiple possible locations
+                // Priority: toolCall.id > payload.id > payload.toolCall.id > fallback to event id
+                let toolId: string;
+                if (toolCall.payload?.toolCall?.id) {
+                  toolId = String(toolCall.payload.toolCall.id);
+                } else if (toolCall.payload?.id) {
+                  toolId = String(toolCall.payload.id);
+                } else if (toolCall.payload?.toolCall?.shellToolCall?.args?.command) {
+                  // For shell commands, use command as unique identifier
+                  toolId = String(toolCall.payload.toolCall.shellToolCall.args.command);
+                } else {
+                  // Fallback: use a combination of event type and timestamp as unique ID
+                  toolId = `tool-${toolCall.timestamp}-${toolCall.id}`;
+                }
                 
-                // Extract tool name
-                const toolName = toolCall.payload?.toolCall?.name ||
-                                toolCall.payload?.toolCall?.shellToolCall?.args?.command ||
-                                toolCall.payload?.name ||
-                                'Unknown Tool';
+                // Extract tool name with better fallback logic
+                let toolName: string;
+                if (toolCall.payload?.toolCall?.name) {
+                  toolName = String(toolCall.payload.toolCall.name);
+                } else if (toolCall.payload?.toolCall?.shellToolCall?.args?.command) {
+                  toolName = String(toolCall.payload.toolCall.shellToolCall.args.command);
+                } else if (toolCall.payload?.name) {
+                  toolName = String(toolCall.payload.name);
+                } else if (toolCall.payload?.toolCall?.mcpToolCall?.name) {
+                  toolName = String(toolCall.payload.toolCall.mcpToolCall.name);
+                } else {
+                  toolName = 'Unknown Tool';
+                }
                 
                 if (!toolMap.has(toolId)) {
-                  toolMap.set(toolId, { name: toolName });
+                  toolMap.set(toolId, { name: toolName, lastUpdate: toolCall.timestamp });
                 }
                 
                 const tool = toolMap.get(toolId)!;
                 if (toolCall.subtype === 'started') {
                   tool.started = toolCall;
+                  tool.lastUpdate = toolCall.timestamp;
                 } else if (toolCall.subtype === 'completed') {
                   tool.completed = toolCall;
+                  tool.lastUpdate = toolCall.timestamp;
+                } else {
+                  // Update timestamp even for other subtypes
+                  tool.lastUpdate = Math.max(tool.lastUpdate || 0, toolCall.timestamp);
                 }
-                if (!tool.name || tool.name === 'Unknown Tool') {
+                
+                // Always update name if we found a better one
+                if (toolName !== 'Unknown Tool' && (!tool.name || tool.name === 'Unknown Tool')) {
                   tool.name = toolName;
                 }
               });
               
               const tools = Array.from(toolMap.values());
+              // Sort tools by last update time to show them in order
+              tools.sort((a, b) => (a.lastUpdate || 0) - (b.lastUpdate || 0));
               
               return (
                 <div
@@ -376,15 +390,24 @@ function App() {
                     {tools.map((tool, idx) => {
                       const isCompleted = !!tool.completed;
                       const toolName = tool.name || `Tool ${idx + 1}`;
+                      // Check if tool has been running for too long (more than 5 minutes)
+                      const isLongRunning = tool.started && !isCompleted && tool.lastUpdate && 
+                        (Date.now() - tool.lastUpdate > 5 * 60 * 1000);
                       
                       return (
-                        <div key={idx} className="flex items-center gap-2 text-xs">
+                        <div key={`${toolName}-${idx}-${tool.started?.id || idx}`} className="flex items-center gap-2 text-xs">
                           {isCompleted ? (
                             <span className="text-green-600 font-semibold text-base">✓</span>
+                          ) : isLongRunning ? (
+                            <span className="text-yellow-600 font-semibold text-base" title="Running for a long time">⚠</span>
                           ) : (
                             <span className="inline-block w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
                           )}
-                          <span className={isCompleted ? 'text-green-700' : 'text-gray-700'}>
+                          <span className={
+                            isCompleted ? 'text-green-700' : 
+                            isLongRunning ? 'text-yellow-700' : 
+                            'text-gray-700'
+                          }>
                             {toolName}
                           </span>
                         </div>

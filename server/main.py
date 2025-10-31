@@ -92,14 +92,20 @@ async def websocket_endpoint(websocket: WebSocket):
                     logger.info(f"  - Prompt has tabs: {'\\t' in prompt}")
                     logger.info(f"  - Prompt has newlines: {'\\n' in prompt}")
                     
-                    # Execute cursor command
-                    # Use --force flag to bypass sandbox restrictions, allowing file writes and other operations
-                    cmd = ['cursor', 'agent', '--print', '--output-format', 'stream-json', '--force', '--resume', chat_id, prompt]
+                    # Execute cursor command in headless mode
+                    # --print: Enable headless mode (print responses to console, no interactive UI)
+                    # --output-format stream-json: Use JSON streaming output format (only works with --print)
+                    # --force: Bypass sandbox restrictions, allowing file writes and other operations
+                    # --approve-mcps: Automatically approve all MCP servers (only works with --print/headless mode)
+                    cmd = ['cursor', 'agent', '--print', '--output-format', 'stream-json', '--force', '--approve-mcps', '--resume', chat_id, prompt]
                     
                     logger.info("Spawning cursor command:")
                     logger.info(f"  - Command: cursor")
                     logger.info(f"  - Args: {' '.join(cmd[1:-1])} [prompt...]")
+                    logger.info(f"  - Mode: headless (--print)")
+                    logger.info(f"  - Output format: stream-json")
                     logger.info(f"  - Using --force flag to bypass sandbox restrictions for file editing")
+                    logger.info(f"  - Using --approve-mcps flag to automatically approve MCP servers")
                     logger.info(f"  - Full command: cursor {' '.join(cmd[1:-1])} \"{prompt.replace(chr(10), '\\n').replace(chr(9), '\\t')[:50]}...\"")
                     
                     await process_cursor_command(cmd, websocket, ws_id)
