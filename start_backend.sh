@@ -62,8 +62,12 @@ fi
 
 # 启动开发服务器
 echo "启动后端服务器 (FastAPI)..."
-echo "后端将运行在 http://localhost:3001"
-echo "WebSocket 将运行在 ws://localhost:3001"
+echo "后端将运行在:"
+echo "  - 本地访问: http://localhost:3001"
+echo "  - 网络访问: http://$(hostname -I 2>/dev/null | awk '{print $1}' || ipconfig getifaddr en0 2>/dev/null || echo 'YOUR_IP'):3001"
+echo "WebSocket 将运行在:"
+echo "  - 本地访问: ws://localhost:3001/ws"
+echo "  - 网络访问: ws://$(hostname -I 2>/dev/null | awk '{print $1}' || ipconfig getifaddr en0 2>/dev/null || echo 'YOUR_IP'):3001/ws"
 echo ""
 
 uvicorn main:app --reload --host 0.0.0.0 --port 3001

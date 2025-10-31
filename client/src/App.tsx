@@ -23,8 +23,8 @@ const getWsUrl = () => {
   return apiBase.replace(/^http/, 'ws') + '/ws';
 };
 
+// 在模块级别先设置默认值，但会在组件中动态计算
 const API_BASE = getApiBase();
-const WS_URL = getWsUrl();
 
 function App() {
   const { currentChatId, events, addEvent, getEvents, createChat, setCurrentChatId } = useAppStore();
@@ -51,9 +51,15 @@ function App() {
 
   // WebSocket 连接
   useEffect(() => {
-    const newWs = new WebSocket(WS_URL);
+    // 在运行时动态计算 WebSocket URL，确保使用正确的 hostname
+    const wsUrl = getWsUrl();
+    console.log('Connecting to WebSocket:', wsUrl);
+    console.log('Current hostname:', typeof window !== 'undefined' ? window.location.hostname : 'N/A');
+    
+    const newWs = new WebSocket(wsUrl);
     
     newWs.onopen = () => {
+      console.log('WebSocket connected successfully to:', wsUrl);
       setConnected(true);
       setWs(newWs);
       wsRef.current = newWs;
@@ -87,6 +93,8 @@ function App() {
 
     newWs.onerror = (error) => {
       console.error('WebSocket error:', error);
+      console.error('Failed to connect to:', wsUrl);
+      console.error('Current location:', typeof window !== 'undefined' ? window.location.href : 'N/A');
       setConnected(false);
     };
 

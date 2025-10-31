@@ -23,12 +23,15 @@ const getApiBase = () => {
   }
   // 如果是网络访问，使用当前主机名；否则使用 localhost
   const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  return hostname === 'localhost' || hostname === '127.0.0.1' 
+  const apiUrl = hostname === 'localhost' || hostname === '127.0.0.1' 
     ? 'http://localhost:3001' 
     : `http://${hostname}:3001`;
+  console.log('API Base URL:', apiUrl, 'hostname:', hostname);
+  return apiUrl;
 };
 
-const API_BASE = getApiBase();
+// 在运行时动态获取，而不是在模块加载时
+const getApiBaseDynamic = () => getApiBase();
 
 export const useAppStore = create<AppState>()(
   persist(
@@ -66,7 +69,9 @@ export const useAppStore = create<AppState>()(
 
       createChat: async () => {
         try {
-          const response = await fetch(`${API_BASE}/api/chat/create`, {
+          const apiBase = getApiBaseDynamic();
+          console.log('Creating chat with API:', apiBase);
+          const response = await fetch(`${apiBase}/api/chat/create`, {
             method: 'POST',
           });
           const data = await response.json();
