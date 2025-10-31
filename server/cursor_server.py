@@ -6,6 +6,7 @@ import subprocess
 from datetime import datetime
 from typing import Optional
 
+import markdown
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -353,14 +354,88 @@ def create_bubble_message(event_type: str, event: dict) -> Optional[dict]:
     return None
 
 
+def convert_markdown_to_html(markdown_text: str) -> str:
+    """Convert markdown text to HTML"""
+    if not markdown_text:
+        return ""
+    
+    try:
+        # Use markdown library with extensions for better support
+        md = markdown.Markdown(extensions=['fenced_code', 'tables', 'nl2br'])
+        html = md.convert(markdown_text)
+        return html
+    except Exception as e:
+        logger.error(f"Error converting markdown to HTML: {e}")
+        # Return escaped HTML if conversion fails
+        return markdown_text.replace('<', '&lt;').replace('>', '&gt;')
+
+
+def process_markdown_event(event: dict) -> dict:
+    """Process markdown event and add HTML conversion"""
+    # Check if this is a markdown event or final message
+    event_type = event.get('type', '')
+    subtype = event.get('subtype', '')
+    
+    # Look for markdown content in various fields
+    markdown_content = None
+    content_fields = ['content', 'text', 'message', 'body', 'markdown', 'md']
+    
+    for field in content_fields:
+        if field in event:
+            content = event[field]
+            if isinstance(content, str) and content.strip():
+                # More aggressive detection: check if it looks like markdown
+                # Check for common markdown patterns
+                has_markdown_syntax = any(
+                    md_syntax in content for md_syntax in [
+                        '# ', '##', '###',  # headers
+                        '```',  # code blocks
+                        '* ', '- ',  # lists
+                        '`',  # inline code
+                        '[', '](',  # links
+                        '**', '__',  # bold/italic
+                        '> ',  # quotes
+                    ]
+                )
+                
+                # If it's a message type or has markdown syntax, treat it as markdown
+                # Be more aggressive: if it's a message type, always try to convert
+                is_markdown = (
+                    event_type == 'message' or
+                    'markdown' in event_type.lower() or
+                    'markdown' in subtype.lower() or
+                    subtype == 'markdown' or
+                    has_markdown_syntax or
+                    (event_type == 'message' and len(content) > 50)  # Long message likely markdown
+                )
+                
+                if is_markdown:
+                    markdown_content = content
+                    logger.info(f"Detected markdown in field '{field}', event type: {event_type}, subtype: {subtype}, length: {len(content)}")
+                    break
+    
+    # If we found markdown content, convert it to HTML
+    if markdown_content:
+        html_content = convert_markdown_to_html(markdown_content)
+        # Add HTML to event
+        event['html'] = html_content
+        event['markdown'] = markdown_content  # Keep original markdown too
+        logger.info(f"Converted markdown to HTML (length: {len(markdown_content)} -> {len(html_content)})")
+    
+    return event
+
+
 async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: str):
     """Process cursor command execution and stream output"""
     process = None
     try:
         # Send reset event at the start of a new command to reset UI state
+        # Clear completed and to_call states
         await websocket.send_json({
             "type": "reset",
-            "message": "Starting new command"
+            "message": "Starting new command",
+            "clear_completed": True,
+            "clear_to_call": True
         })
         
         # Create subprocess using asyncio
@@ -379,10 +454,11 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
         stdout_buffer = ''
         stderr_buffer = ''
         line_count = 0
+        tools_called_count = 0  # Track total tools called
         
         # Create tasks to handle stdout and stderr
         async def handle_stdout():
-            nonlocal stdout_buffer, line_count
+            nonlocal stdout_buffer, line_count, tools_called_count
             while True:
                 data = await process.stdout.readline()
                 if not data:
@@ -412,9 +488,20 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
                             if is_tool_event:
                                 tool_name = extract_tool_name(event)
                                 if tool_name:
+                                    # Increment tools called count
+                                    tools_called_count += 1
+                                    
                                     # Add or update tool_name in the event for proper display
                                     event['tool_name'] = tool_name
-                                    logger.info(f"Extracted tool name: {tool_name}")
+                                    event['tools_called'] = tools_called_count
+                                    logger.info(f"Extracted tool name: {tool_name}, total tools called: {tools_called_count}")
+                                    
+                                    # Send tools called count update (instead of remaining)
+                                    await websocket.send_json({
+                                        "type": "tools_status",
+                                        "tools_called": tools_called_count,
+                                        "message": f"{tools_called_count} tools called"
+                                    })
                                     
                                     # Create and send bubble message for tool call
                                     bubble = create_bubble_message('tool_call', event)
@@ -442,6 +529,25 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
                                 if bubble:
                                     await websocket.send_json(bubble)
                                     logger.info(f"Sent file edit bubble: {bubble['message']}")
+                            
+                            # Check for completed/success events and clear to_call
+                            is_completed = (
+                                event_type == 'result' or
+                                subtype == 'success' or
+                                subtype == 'completed' or
+                                'completed' in event_type.lower() or
+                                'success' in event_type.lower()
+                            )
+                            
+                            if is_completed:
+                                # Clear to_call when completed
+                                await websocket.send_json({
+                                    "type": "clear_to_call"
+                                })
+                                logger.info("Sent clear_to_call event on completion")
+                            
+                            # Process markdown events and convert to HTML
+                            event = process_markdown_event(event)
                             
                             logger.info(f"Sending event to client (line {line_count}): {event_type} {subtype}")
                             await websocket.send_json(event)
