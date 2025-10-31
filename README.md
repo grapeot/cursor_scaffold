@@ -159,8 +159,8 @@ cp .env.example .env
 ```
 
 前端默认运行在：
-- **本地访问**: `http://localhost:5173`
-- **网络访问**: `http://<YOUR_IP>:5173`（可在启动脚本的输出中查看具体地址）
+- **本地访问**: `http://localhost:5200`
+- **网络访问**: `http://<YOUR_IP>:5200`（可在启动脚本的输出中查看具体地址）
 - Vite 会自动监听所有网络接口（`0.0.0.0`），允许从其他设备访问
 - 如果端口被占用，Vite 会自动选择下一个可用端口
 
@@ -231,7 +231,7 @@ npm run dev
 # 终端 2: 启动前端
 ./start_frontend.sh
 
-# 浏览器: 访问 http://localhost:5173
+# 浏览器: 访问 http://localhost:5200
 # 1. 验证自动创建会话
 # 2. 发送测试消息："Say hello"
 # 3. 验证收到响应
@@ -251,7 +251,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 3001
 cd client
 npm run dev
 
-# 浏览器: 访问 http://localhost:5173
+# 浏览器: 访问 http://localhost:5200
 ```
 
 ### 命令行测试
@@ -474,7 +474,7 @@ PORT=3001
 
 1. 确保前端和后端都正常启动
 2. 获取运行服务器的 IP 地址（启动脚本会显示）
-3. 在同一 WiFi 网络内的移动设备上访问 `http://<SERVER_IP>:5173`
+3. 在同一 WiFi 网络内的移动设备上访问 `http://<SERVER_IP>:5200`
 4. 前端会自动连接到正确的后端地址
 
 ## 开发注意事项

@@ -37,8 +37,8 @@ fi
 # 启动开发服务器
 echo "启动前端开发服务器..."
 echo "前端将运行在:"
-echo "  - 本地访问: http://localhost:5173"
-echo "  - 网络访问: http://$(hostname -I 2>/dev/null | awk '{print $1}' || ipconfig getifaddr en0 2>/dev/null || echo 'YOUR_IP'):5173"
+echo "  - 本地访问: http://localhost:5200"
+echo "  - 网络访问: http://$(hostname -I 2>/dev/null | awk '{print $1}' || ipconfig getifaddr en0 2>/dev/null || echo 'YOUR_IP'):5200"
 echo "  (如果端口被占用，Vite 会自动选择下一个可用端口)"
 echo ""
 

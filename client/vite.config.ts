@@ -9,7 +9,7 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0', // 允许网络访问
-    port: 5173,
+    port: 5200,
     strictPort: false // 如果端口被占用，尝试下一个可用端口
   }
 })
