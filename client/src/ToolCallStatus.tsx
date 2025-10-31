@@ -18,10 +18,8 @@ interface ToolCallStatusProps {
  * Supports multiple tool types: shellToolCall, writeFileToolCall, etc.
  * Format reference: docs/cursor_agent_format.md
  */
-function ToolCallStatus({ total, completed, tools }: ToolCallStatusProps) {
+function ToolCallStatus({ total: _total, completed, tools }: ToolCallStatusProps) {
   const [expanded, setExpanded] = useState(false);
-  const pending = total - completed;
-  const allCompleted = completed === total && total > 0;
 
   // Extract tool information from event according to documented format
   const getToolInfo = (tool: ToolInfo) => {
@@ -93,22 +91,10 @@ function ToolCallStatus({ total, completed, tools }: ToolCallStatusProps) {
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2">
-          {allCompleted ? (
+          {completed > 0 && (
             <>
-              <span className="text-green-600 font-semibold text-base">✓</span>
-              <span>Tools completed</span>
-            </>
-          ) : (
-            <>
-              <div className="relative">
-                <span className="inline-block w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
-                {pending > 1 && (
-                  <span className="absolute -top-1 -right-1 flex items-center justify-center w-4 h-4 bg-blue-500 text-white text-[10px] font-bold rounded-full">
-                    {pending}
-                  </span>
-                )}
-              </div>
-              <span>Calling tools{pending > 1 ? ` (${pending} remaining)` : ''}</span>
+              <span className="text-blue-600 font-semibold text-base">{completed}</span>
+              <span>{completed === 1 ? 'tool called' : 'tools called'}</span>
             </>
           )}
         </div>

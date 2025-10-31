@@ -116,6 +116,15 @@ function App() {
               return;
             }
             
+            // Debug: log assistant messages to check HTML field
+            if (data.type === 'assistant') {
+              console.log('[WebSocket] Received assistant message:');
+              console.log('[WebSocket] data keys:', Object.keys(data));
+              console.log('[WebSocket] data.html:', data.html);
+              console.log('[WebSocket] data.payload:', data.payload);
+              console.log('[WebSocket] Full data preview:', JSON.stringify(data).substring(0, 500));
+            }
+            
             const chatEvent: ChatEvent = {
               id: `${Date.now()}-${Math.random()}`,
               chatId: currentChatId,
@@ -354,6 +363,10 @@ function App() {
             if (event.type === 'system' && event.subtype === 'init') {
               return; // Skip system initialization
             }
+            // Filter out system control messages (reset, clear_tool_call) - they're for state management only
+            if (event.type === 'reset' || event.type === 'clear_tool_call') {
+              return; // Skip system control messages
+            }
             
             // Track tool calls in background but don't display them individually
             // Format reference: docs/cursor_agent_format.md
@@ -425,20 +438,17 @@ function App() {
           
           const totalToolCalls = currentTurnToolCalls.length;
           const completedToolCalls = currentTurnToolCalls.filter(tool => tool.completed).length;
-          const hasActiveToolCalls = totalToolCalls > 0 && completedToolCalls < totalToolCalls;
-          const allToolCallsFinished = totalToolCalls > 0 && completedToolCalls === totalToolCalls;
-          
-          // Find the latest tool call event to check if it's still the most recent
-          const toolCallEvents = currentEvents.filter(e => e.type === 'tool_call' && e.timestamp >= lastUserTimestamp);
-          const latestToolCallEvent = toolCallEvents.length > 0 ? toolCallEvents[toolCallEvents.length - 1] : null;
-          const latestNonToolCallEvent = nonResultEvents.length > 0 ? nonResultEvents[nonResultEvents.length - 1] : null;
           
           // Show tool call status only if:
-          // 1. There are active tool calls (in progress), OR
-          // 2. All are finished AND it's still the latest event (no new messages after completion)
-          const shouldShowToolCallStatus = hasActiveToolCalls || 
-            (allToolCallsFinished && latestToolCallEvent && 
-             (!latestNonToolCallEvent || latestToolCallEvent.timestamp > latestNonToolCallEvent.timestamp));
+          // 1. There are tool calls in current turn AND no completed result yet
+          // Don't show if result is completed (success) - clear tool_call when completed
+          const hasCompletedResult = latestResult && 
+            latestResult.timestamp >= lastUserTimestamp &&
+            (latestResult.subtype === 'success' || 
+             (latestResult.subtype !== 'error' && 
+              (latestResult.payload?.exitCode === 0 || latestResult.payload?.is_error === false)));
+          
+          const shouldShowToolCallStatus = completedToolCalls > 0 && !hasCompletedResult;
           
           // Check for the latest thinking event - only show if it's the most recent event
           // (transient: disappears when next message arrives)
@@ -470,39 +480,63 @@ function App() {
                 {chatEvent.type === 'assistant' && <div className="font-medium mb-1">Assistant:</div>}
                 {chatEvent.type === 'error' && <div className="font-medium mb-1 text-red-600">Error:</div>}
                 
-                <div className="whitespace-pre-wrap break-words">
-                  {chatEvent.type === 'user' && chatEvent.payload.prompt}
-                  {chatEvent.type === 'assistant' && (
-                    (() => {
-                      // Parse assistant message according to cursor_agent_format.md
-                      // Format: payload.message.content (array of content blocks or string)
-                      const content = chatEvent.payload.message?.content || 
-                                     chatEvent.payload.content || 
-                                     chatEvent.payload.text;
-                      if (Array.isArray(content)) {
-                        // Array of content blocks: each has type and text fields
-                        return content.map((item, i) => {
-                          if (item.type === 'text') {
-                            return <span key={i}>{item.text}</span>;
-                          }
-                          // Handle other content types (e.g., code blocks) if needed
-                          return null;
-                        });
-                      }
-                      if (typeof content === 'string') {
-                        // Direct string content
-                        return content;
-                      }
-                      return null;
-                    })()
-                  )}
-                  {chatEvent.type === 'error' && chatEvent.payload.message}
-                  {!['user', 'assistant', 'error', 'result'].includes(chatEvent.type) && (
+                {chatEvent.type === 'assistant' && (() => {
+                  // Check for HTML content from backend markdown conversion
+                  const htmlContent = chatEvent.payload.html || chatEvent.payload.message?.html;
+                  if (htmlContent) {
+                    console.log('[App] Rendering HTML for assistant message, HTML length:', htmlContent.length);
+                    console.log('[App] HTML preview:', htmlContent.substring(0, 200));
+                    return (
+                      <div 
+                        className="prose prose-sm max-w-none break-words"
+                        dangerouslySetInnerHTML={{ __html: htmlContent }}
+                      />
+                    );
+                  } else {
+                    // Fall back to regular text rendering
+                    console.log('[App] No HTML found for assistant message, payload keys:', Object.keys(chatEvent.payload));
+                    console.log('[App] payload.html:', chatEvent.payload.html);
+                    console.log('[App] payload.message:', chatEvent.payload.message);
+                    
+                    // Parse assistant message according to cursor_agent_format.md
+                    // Format: payload.message.content (array of content blocks or string)
+                    const content = chatEvent.payload.message?.content || 
+                                   chatEvent.payload.content || 
+                                   chatEvent.payload.text;
+                    if (Array.isArray(content)) {
+                      // Array of content blocks: each has type and text fields
+                      return content.map((item, i) => {
+                        if (item.type === 'text') {
+                          return <span key={i}>{item.text}</span>;
+                        }
+                        // Handle other content types (e.g., code blocks) if needed
+                        return null;
+                      });
+                    }
+                    if (typeof content === 'string') {
+                      // Direct string content
+                      return content;
+                    }
+                    return null;
+                  }
+                })()}
+                {chatEvent.type === 'user' && (
+                  <div className="whitespace-pre-wrap break-words">
+                    {chatEvent.payload.prompt}
+                  </div>
+                )}
+                {chatEvent.type === 'error' && (
+                  <div className="whitespace-pre-wrap break-words">
+                    {chatEvent.payload.message}
+                  </div>
+                )}
+                {!['user', 'assistant', 'error', 'result'].includes(chatEvent.type) && (
+                  <div className="whitespace-pre-wrap break-words">
                     <pre className="text-xs overflow-x-auto">
                       {JSON.stringify(chatEvent.payload, null, 2)}
                     </pre>
-                  )}
-                </div>
+                  </div>
+                )}
                 
                 <div className="text-xs opacity-70 mt-1">
                   {new Date(chatEvent.timestamp).toLocaleTimeString()}
@@ -537,7 +571,8 @@ function App() {
           
           // Add latest result event if exists (after messages and tool call status)
           // Format reference: docs/cursor_agent_format.md
-          if (latestResult) {
+          // Only show if it's from the current conversation turn (after last user message)
+          if (latestResult && latestResult.timestamp >= lastUserTimestamp) {
             // Result event format: subtype can be 'success' or 'error'
             // Also check exitCode (0 for success) or is_error flag
             const exitCode = latestResult.payload?.exitCode ?? (latestResult.payload as any)?.exitCode;

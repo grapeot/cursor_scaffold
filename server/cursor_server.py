@@ -376,43 +376,131 @@ def process_markdown_event(event: dict) -> dict:
     event_type = event.get('type', '')
     subtype = event.get('subtype', '')
     
+    # Debug: log all assistant events
+    if event_type == 'assistant':
+        logger.info(f"=== Processing assistant event ===")
+        logger.info(f"Event type: {event_type}, subtype: {subtype}")
+        logger.info(f"Event keys: {list(event.keys())}")
+        logger.info(f"Event preview: {json.dumps(event, ensure_ascii=False)[:500]}")
+    
     # Look for markdown content in various fields
     markdown_content = None
-    content_fields = ['content', 'text', 'message', 'body', 'markdown', 'md']
     
-    for field in content_fields:
-        if field in event:
-            content = event[field]
-            if isinstance(content, str) and content.strip():
-                # More aggressive detection: check if it looks like markdown
-                # Check for common markdown patterns
-                has_markdown_syntax = any(
-                    md_syntax in content for md_syntax in [
-                        '# ', '##', '###',  # headers
-                        '```',  # code blocks
-                        '* ', '- ',  # lists
-                        '`',  # inline code
-                        '[', '](',  # links
-                        '**', '__',  # bold/italic
-                        '> ',  # quotes
-                    ]
-                )
+    # For assistant messages, check payload.message.content first
+    # Always convert assistant message content to HTML (assistant messages usually contain markdown)
+    if event_type == 'assistant':
+        logger.info(f"Processing assistant message, event keys: {list(event.keys())}")
+        
+        # Check payload structure
+        payload = event.get('payload')
+        if payload and isinstance(payload, dict):
+            logger.info(f"Assistant payload keys: {list(payload.keys())}")
+            
+            # Check payload.message.content (could be array or string)
+            if 'message' in payload and isinstance(payload['message'], dict):
+                logger.info(f"Found message in payload, message keys: {list(payload['message'].keys())}")
+                msg_content = payload['message'].get('content')
+                logger.info(f"Message content type: {type(msg_content)}, value preview: {str(msg_content)[:200] if msg_content else None}")
                 
-                # If it's a message type or has markdown syntax, treat it as markdown
-                # Be more aggressive: if it's a message type, always try to convert
-                is_markdown = (
-                    event_type == 'message' or
-                    'markdown' in event_type.lower() or
-                    'markdown' in subtype.lower() or
-                    subtype == 'markdown' or
-                    has_markdown_syntax or
-                    (event_type == 'message' and len(content) > 50)  # Long message likely markdown
-                )
-                
-                if is_markdown:
-                    markdown_content = content
-                    logger.info(f"Detected markdown in field '{field}', event type: {event_type}, subtype: {subtype}, length: {len(content)}")
-                    break
+                if isinstance(msg_content, str) and msg_content.strip():
+                    markdown_content = msg_content
+                    logger.info(f"Found string content in payload.message.content (length: {len(markdown_content)})")
+                elif isinstance(msg_content, list):
+                    # Extract text from content array
+                    text_parts = []
+                    for item in msg_content:
+                        if isinstance(item, dict) and item.get('type') == 'text' and 'text' in item:
+                            text_parts.append(item['text'])
+                    if text_parts:
+                        markdown_content = '\n'.join(text_parts)
+                        logger.info(f"Extracted text from content array (length: {len(markdown_content)})")
+            
+            # Also check payload.content and payload.text
+            if not markdown_content:
+                for field in ['content', 'text']:
+                    if field in payload:
+                        content = payload[field]
+                        if isinstance(content, str) and content.strip():
+                            markdown_content = content
+                            logger.info(f"Found content in payload.{field} (length: {len(markdown_content)})")
+                            break
+        
+        # Check top-level fields if not found in payload
+        if not markdown_content:
+            for field in ['content', 'text', 'message']:
+                if field in event:
+                    content = event[field]
+                    if isinstance(content, str) and content.strip():
+                        markdown_content = content
+                        logger.info(f"Found content in top-level {field} (length: {len(markdown_content)})")
+                        break
+                    elif isinstance(content, dict) and 'content' in content:
+                        # Nested message structure
+                        nested_content = content.get('content')
+                        if isinstance(nested_content, str) and nested_content.strip():
+                            markdown_content = nested_content
+                            logger.info(f"Found content in top-level {field}.content (length: {len(markdown_content)})")
+                            break
+                        elif isinstance(nested_content, list):
+                            text_parts = []
+                            for item in nested_content:
+                                if isinstance(item, dict) and item.get('type') == 'text' and 'text' in item:
+                                    text_parts.append(item['text'])
+                            if text_parts:
+                                markdown_content = '\n'.join(text_parts)
+                                logger.info(f"Extracted text from top-level {field}.content array (length: {len(markdown_content)})")
+                                break
+        
+        # If we found content for assistant message, skip further markdown detection
+        # (assistant messages should always be converted to HTML)
+        if markdown_content:
+            # Convert to HTML immediately
+            html_content = convert_markdown_to_html(markdown_content)
+            event['html'] = html_content
+            event['markdown'] = markdown_content  # Keep original markdown too
+            logger.info(f"Converted assistant message to HTML (markdown length: {len(markdown_content)}, HTML length: {len(html_content)})")
+            logger.info(f"HTML preview: {html_content[:200]}")
+            return event
+        else:
+            logger.warning(f"No content found in assistant message, event structure: {json.dumps(event, indent=2)[:500]}")
+    
+    # Check top-level fields if not found in payload
+    if not markdown_content:
+        content_fields = ['content', 'text', 'message', 'body', 'markdown', 'md']
+        for field in content_fields:
+            if field in event:
+                content = event[field]
+                if isinstance(content, str) and content.strip():
+                    # More aggressive detection: check if it looks like markdown
+                    # Check for common markdown patterns
+                    has_markdown_syntax = any(
+                        md_syntax in content for md_syntax in [
+                            '# ', '##', '###',  # headers
+                            '```',  # code blocks
+                            '* ', '- ',  # lists
+                            '`',  # inline code
+                            '[', '](',  # links
+                            '**', '__',  # bold/italic
+                            '> ',  # quotes
+                        ]
+                    )
+                    
+                    # If it's a message type or has markdown syntax, treat it as markdown
+                    # Be more aggressive: if it's a message type or assistant type, always try to convert
+                    is_markdown = (
+                        event_type == 'message' or
+                        event_type == 'assistant' or
+                        'markdown' in event_type.lower() or
+                        'markdown' in subtype.lower() or
+                        subtype == 'markdown' or
+                        has_markdown_syntax or
+                        ((event_type == 'message' or event_type == 'assistant') and len(content) > 50)  # Long message likely markdown
+                    )
+                    
+                    if is_markdown:
+                        markdown_content = content
+                        logger.info(f"Detected markdown in field '{field}', event type: {event_type}, subtype: {subtype}, length: {len(content)}")
+                        break
     
     # If we found markdown content, convert it to HTML
     if markdown_content:
@@ -430,12 +518,12 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
     process = None
     try:
         # Send reset event at the start of a new command to reset UI state
-        # Clear completed and to_call states
+        # Clear completed and tool_call states
         await websocket.send_json({
             "type": "reset",
             "message": "Starting new command",
             "clear_completed": True,
-            "clear_to_call": True
+            "clear_tool_call": True
         })
         
         # Create subprocess using asyncio
@@ -530,7 +618,7 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
                                     await websocket.send_json(bubble)
                                     logger.info(f"Sent file edit bubble: {bubble['message']}")
                             
-                            # Check for completed/success events and clear to_call
+                            # Check for completed/success events and clear tool_call
                             is_completed = (
                                 event_type == 'result' or
                                 subtype == 'success' or
@@ -540,11 +628,11 @@ async def process_cursor_command(cmd: list[str], websocket: WebSocket, ws_id: st
                             )
                             
                             if is_completed:
-                                # Clear to_call when completed
+                                # Clear tool_call when completed
                                 await websocket.send_json({
-                                    "type": "clear_to_call"
+                                    "type": "clear_tool_call"
                                 })
-                                logger.info("Sent clear_to_call event on completion")
+                                logger.info("Sent clear_tool_call event on completion")
                             
                             # Process markdown events and convert to HTML
                             event = process_markdown_event(event)
