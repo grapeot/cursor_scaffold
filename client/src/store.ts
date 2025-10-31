@@ -70,11 +70,28 @@ export const useAppStore = create<AppState>()(
 
       createChat: async () => {
         try {
-          const apiBase = getApiBase();
-          console.log('Creating chat with API:', apiBase);
+          // 在运行时动态计算 API 地址，确保使用正确的 hostname
+          let apiBase: string;
+          if (import.meta.env.VITE_API_URL) {
+            apiBase = import.meta.env.VITE_API_URL;
+          } else if (typeof window !== 'undefined') {
+            const hostname = window.location.hostname;
+            apiBase = hostname === 'localhost' || hostname === '127.0.0.1' 
+              ? 'http://localhost:3001' 
+              : `http://${hostname}:3001`;
+          } else {
+            apiBase = 'http://localhost:3001';
+          }
+          console.log('[createChat] Using API:', apiBase, 'hostname:', typeof window !== 'undefined' ? window.location.hostname : 'N/A');
+          
           const response = await fetch(`${apiBase}/api/chat/create`, {
             method: 'POST',
           });
+          
+          if (!response.ok) {
+            throw new Error(`Failed to create chat: ${response.status} ${response.statusText}`);
+          }
+          
           const data = await response.json();
           const chatId = data.chatId;
           

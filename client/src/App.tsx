@@ -42,15 +42,34 @@ function App() {
     const init = async () => {
       if (!currentChatId) {
         try {
+          console.log('[init] Attempting to create chat...');
           const chatId = await createChat();
+          console.log('[init] Chat created successfully:', chatId);
           setCurrentChatId(chatId);
         } catch (error) {
-          console.error('Failed to create chat:', error);
+          console.error('[init] Failed to create chat:', error);
+          // 如果创建失败，尝试重试（可能是网络问题）
+          console.log('[init] Will retry when WebSocket connects...');
         }
       }
     };
     init();
   }, []);
+
+  // 当 WebSocket 连接成功后，如果没有 chatId，尝试创建
+  useEffect(() => {
+    if (connected && !currentChatId) {
+      console.log('[WebSocket connected] No chatId, attempting to create...');
+      createChat()
+        .then((chatId) => {
+          console.log('[WebSocket connected] Chat created:', chatId);
+          setCurrentChatId(chatId);
+        })
+        .catch((error) => {
+          console.error('[WebSocket connected] Failed to create chat:', error);
+        });
+    }
+  }, [connected, currentChatId]);
 
   // WebSocket 连接
   useEffect(() => {
